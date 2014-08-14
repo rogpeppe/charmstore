@@ -375,6 +375,9 @@ func (r *Router) GetMetadata(id *charm.Reference, includes []string) (map[string
 	return results, nil
 }
 
+func (r *Router) PutMetadata(id *charm.Reference, data map[string] *json.RawMessage) map[string] error {
+
+
 // splitPath returns the first path element
 // after path[i:] and the start of the next
 // element.
