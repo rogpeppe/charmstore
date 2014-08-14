@@ -5,6 +5,7 @@ package v4
 
 import (
 	"archive/zip"
+	"encoding/json"
 	"net/http"
 	"net/url"
 
@@ -50,7 +51,9 @@ func New(store *charmstore.Store) http.Handler {
 			"charm-actions":       h.entityHandler(h.metaCharmActions, "charmactions"),
 			"archive-size":        h.entityHandler(h.metaArchiveSize, "size"),
 			"manifest":            h.entityHandler(h.metaManifest, "blobname"),
+			"manifest":            h.entityHandler(h.metaManifest, "blobname"),
 			"archive-upload-time": h.entityHandler(h.metaArchiveUploadTime, "uploadtime"),
+			"extra-info":         h.puttableEntityHandler(h.metaExtraInfo, h.metaExtraInfoPut, "extra-info"),
 
 			// endpoints not yet implemented - use SingleIncludeHandler for the time being.
 			"color":              router.SingleIncludeHandler(h.metaColor),
@@ -92,20 +95,54 @@ func (h *handler) resolveURL(url *charm.Reference) error {
 type entityHandlerFunc func(entity *mongodoc.Entity, id *charm.Reference, path string, method string, flags url.Values) (interface{}, error)
 
 // entityHandler returns a handler that calls f with a *mongodoc.Entity that
-// contains at least the given fields.
+// contains at least the given fields. It allows only GET requests.
 func (h *handler) entityHandler(f entityHandlerFunc, fields ...string) router.BulkIncludeHandler {
+	return h.entityHandler0(f, false, fields...)
+}
+
+// entityHandler returns a handler that calls f with a *mongodoc.Entity that
+// contains at least the given fields. It allows GET and PUT requests.
+func (h *handler) entityHandlerWithPut(f entityHandlerFunc, fields ...string) router.BulkIncludeHandler {
+	return h.entityHandler0(f, true, fields...)
+}
+
+// entityHandler0 holds the implementation for both entityHandler
+// and entityHandlerWithPut.
+func (h *handler) entityHandler0(f entityHandlerFunc, allowPut bool, fields ...string) router.BulkIncludeHandler {
 	handle := func(doc interface{}, id *charm.Reference, path string, method string, flags url.Values) (interface{}, error) {
 		edoc := doc.(*mongodoc.Entity)
 		val, err := f(edoc, id, path, method, flags)
 		return val, errgo.Mask(err, errgo.Any)
 	}
 	type entityHandlerKey struct{}
-	return router.FieldIncludeHandler(
-		entityHandlerKey{},
-		h.entityQuery,
-		fields,
-		handle,
-	)
+	return &entityHandler{
+		allowPut: allowPut,
+		BulkIncludeHandler: router.FieldIncludeHandler(router.FieldIncludeHandlerParams{
+			Key: entityHandlerKey{},
+			Query: h.entityQuery,
+			Fields: fields,
+			Handle: handle,
+		}),
+	}
+}
+
+type entityHandler struct {
+	allowPut bool
+	router.BulkIncludeHandler
+}
+
+func (h *entityHandler) Handle(hs []router.BulkIncludeHandler, id *charm.Reference, paths []string, method string, flags url.Values) ([]interface{}, error) {
+	methodOk := method == "GET" || (h.allowPut && method == "PUT")
+	if !methodOk {
+		return nil, errgo.WithCausef(nil, params.ErrBadRequest, "method %q not allowed", method)
+	}
+	// Transform the values in the slice so that the slice
+	// is suitable for passing to the FieldIncludeHandler.
+	hs1 := make([]router.BulkIncludeHandler, len(hs))
+	for i, h := range hs {
+		hs1[i] = h.(*entityHandler).BulkIncludeHandler
+	}
+	return h.BulkIncludeHandler.Handle(hs1, id, paths, method, flags)
 }
 
 func (h *handler) entityQuery(id *charm.Reference, selector map[string]int) (interface{}, error) {
@@ -205,6 +242,9 @@ func (h *handler) metaCharmMetadata(entity *mongodoc.Entity, id *charm.Reference
 	return entity.CharmMeta, nil
 }
 
+func (h *handler) putMetaExtraInfo(id *charm.Reference, path string, value *json.RawMessage, flags url.Values, fieldToSet map[string] interface{}) error {
+}
+
 // GET id/meta/bundle-metadata
 // http://tinyurl.com/ozshbtb
 func (h *handler) metaBundleMetadata(entity *mongodoc.Entity, id *charm.Reference, path string, method string, flags url.Values) (interface{}, error) {
@@ -281,6 +321,39 @@ func (h *handler) metaBundlesContaining(id *charm.Reference, path string, method
 func (h *handler) metaExtraInfo(id *charm.Reference, path string, method string, flags url.Values) (interface{}, error) {
 	return nil, errNotImplemented
 }
+
+type FieldUpdater interface {
+	UpdateField(name string, val interface{})
+}
+
+// PUT id/meta/extra-info
+// http://tinyurl.com/keos7wd
+func (h *handler) metaExtraInfoPut(id *charm.Reference, path string, value *json.RawMessage, updater FieldUpdater) error {
+	var vals map[string] *json.RawMessage
+	err := json.Unmarshal(*value, &vals)
+	if err != nil {
+		return err
+	}
+	for key, val := range vals {
+		updater.UpdateField("extra-info." + key, val)
+	}
+	return nil
+}
+
+// PUT id/meta/extra-info
+// http://tinyurl.com/keos7wd
+func (h *handler) metaExtraInfoWithKeyPut(id *charm.Reference, path string, value *json.RawMessage, updateOp map[string] interface{}) error {
+	if path != "" && strings.Contains(path[1:], "/") {
+		return no way josé
+	}
+	updateOp["extra-info." + path] = value
+	return nil
+}
+
+func (h *handler) metaExtraInfo(id *charm.Reference, path string, value *json.RawMessage, updateOp map[string] interface{}) error {
+
+// entities.UpdateId(id, bson.D{{"$set", updateOp}})
+
 
 // GET id/meta/extra-info/key
 // http://tinyurl.com/polrbn7

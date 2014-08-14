@@ -11,10 +11,21 @@ import (
 // selecting only those fields specified in keys of the given selector.
 type FieldQueryFunc func(id *charm.Reference, selector map[string]int) (interface{}, error)
 
+// A FieldUpdateFunc is used to update a metadata document for the
+// given URL. For each field in updateOp, it will set that field to
+// its corresponding value in the metadata document.
+type FieldUpdateFunc func(id *charm.Reference, updateOp map[string]interface{}) error
+
+
 // A FieldHandlerFunc returns some data from the given document. The
 // document will have been returned from an earlier call to the
 // associated QueryFunc.
-type FieldHandlerFunc func(doc interface{}, id *charm.Reference, path string, method string, flags url.Values) (interface{}, error)
+type FieldGetFunc func(doc interface{}, id *charm.Reference, path string, method string, flags url.Values) (interface{}, error)
+
+// FieldPutFunc sets values in updateOp corresponding to fields to be set
+// in the metadata document for the given URL. The path holds the metadata path
+// after the initial prefix has been removed.
+type FieldPutFunc func(id *charm.Reference, path string, updateOp map[string] interface{}) error
 
 // FieldIncludeHandlerParams specifies the parameters for NewFieldIncludeHandler.
 type FieldIncludeHandlerParams struct {
@@ -27,11 +38,18 @@ type FieldIncludeHandlerParams struct {
 	// in all the handlers in the bulk request.
 	Query  FieldQueryFunc
 
+	// Update is used to update the document in the database.
+	Update FieldUpdateFunc
+
 	// Fields specifies which fields are required by the given handler.
 	Fields []string
 
 	// Handle actually retrieves the data from the document.
-	Handle FieldHandlerFunc
+	HandleGet FieldGetFunc
+
+	// HandlePut generates update operations for a PUT
+	// operation.
+	HandlePut FieldPutFunc
 }
 
 type fieldIncludeHandler struct {
@@ -51,13 +69,27 @@ func (h *fieldIncludeHandler) Key() interface{} {
 	return h.p.Key
 }
 
-func (h *fieldIncludeHandler) Handle(hs []BulkIncludeHandler, id *charm.Reference, paths []string, method string, flags url.Values) ([]interface{}, error) {
+func (h *fieldIncludeHandler) HandlePut(hs []BulkIncludeHandler, id *charm.Reference, paths []string, values []*json.RawMessage) []error {
+	funcs := make([]FieldPutFunc, len(hs))
+	// Extract the handler functions.
+	for i, h := range hs {
+		h := h.(*fieldIncludeHandler)
+		funcs[i] = h.p.HandlePut
+	}
+	updateOp := make(map[string]interface{})
+	for _, f := range funcs {
+		if err := f(id, path, updateOp); err 
+	}
+	if err := h.Update(id, updateOp)
+}
+
+func (h *fieldIncludeHandler) HandleGet(hs []BulkIncludeHandler, id *charm.Reference, paths []string, method string, flags url.Values) ([]interface{}, error) {
 	funcs := make([]FieldHandlerFunc, len(hs))
 	selector := make(map[string]int)
 	// Extract the handler functions and union all the fields.
 	for i, h := range hs {
 		h := h.(*fieldIncludeHandler)
-		funcs[i] = h.p.Handle
+		funcs[i] = h.p.HandleGet
 		for _, field := range h.p.Fields {
 			selector[field] = 1
 		}
