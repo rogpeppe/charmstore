@@ -16,36 +16,39 @@ type FieldQueryFunc func(id *charm.Reference, selector map[string]int) (interfac
 // associated QueryFunc.
 type FieldHandlerFunc func(doc interface{}, id *charm.Reference, path string, method string, flags url.Values) (interface{}, error)
 
-// FieldIncludeHandler returns a BulkIncludeHandler that will perform
-// only a single database query for several requests. The given key is
-// used to group together similar FieldIncludeHandlers (the same query
-// should be generated for a given key). The given query is used to
-// retrieve the document from the database, and the given handle
-// function is used to actually retrieve the metadata after the query.
-//
-// The fields specify which fields are required by the given handler.
-// The fields passed to the query will be the union of all fields found
-// in all the handlers in the bulk request.
-//
-// See in ../v4/api.go for an example of its use.
-func FieldIncludeHandler(key interface{}, q FieldQueryFunc, fields []string, handle FieldHandlerFunc) BulkIncludeHandler {
-	return &fieldIncludeHandler{
-		key:    key,
-		query:  q,
-		fields: fields,
-		handle: handle,
-	}
+// FieldIncludeHandlerParams specifies the parameters for NewFieldIncludeHandler.
+type FieldIncludeHandlerParams struct {
+	// Key is used to group together similar FieldIncludeHandlers
+	// (the same query should be generated for any given key).
+	Key    interface{}
+	
+	// Query is used to retrieve the document from the database
+	// The fields passed to the query will be the union of all fields found
+	// in all the handlers in the bulk request.
+	Query  FieldQueryFunc
+
+	// Fields specifies which fields are required by the given handler.
+	Fields []string
+
+	// Handle actually retrieves the data from the document.
+	Handle FieldHandlerFunc
 }
 
 type fieldIncludeHandler struct {
-	key    interface{}
-	query  FieldQueryFunc
-	fields []string
-	handle FieldHandlerFunc
+	p FieldIncludeHandlerParams
+}
+
+// FieldIncludeHandler returns a BulkIncludeHandler that will perform
+// only a single database query for several requests. See FieldIncludeHandlerParams
+// for more detail.
+//
+// See in ../v4/api.go for an example of its use.
+func FieldIncludeHandler(p FieldIncludeHandlerParams) BulkIncludeHandler {
+	return &fieldIncludeHandler{p}
 }
 
 func (h *fieldIncludeHandler) Key() interface{} {
-	return h.key
+	return h.p.Key
 }
 
 func (h *fieldIncludeHandler) Handle(hs []BulkIncludeHandler, id *charm.Reference, paths []string, method string, flags url.Values) ([]interface{}, error) {
@@ -54,13 +57,13 @@ func (h *fieldIncludeHandler) Handle(hs []BulkIncludeHandler, id *charm.Referenc
 	// Extract the handler functions and union all the fields.
 	for i, h := range hs {
 		h := h.(*fieldIncludeHandler)
-		funcs[i] = h.handle
-		for _, field := range h.fields {
+		funcs[i] = h.p.Handle
+		for _, field := range h.p.Fields {
 			selector[field] = 1
 		}
 	}
 	// Make the single query.
-	doc, err := h.query(id, selector)
+	doc, err := h.p.Query(id, selector)
 	if err != nil {
 		// Note: preserve error cause from handlers.
 		return nil, errgo.Mask(err, errgo.Any)

@@ -1246,7 +1246,12 @@ func fieldSelectHandler(handlerId string, key interface{}, fields ...string) Bul
 			Flags:     flags,
 		}, nil
 	}
-	return FieldIncludeHandler(key, query, fields, handle)
+	return FieldIncludeHandler(FieldIncludeHandlerParams{
+		Key: key,
+		Query: query,
+		Fields: fields,
+		Handle: handle,
+	})
 }
 
 // selectiveIdHandler handles metadata by returning the
