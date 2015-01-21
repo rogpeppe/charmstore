@@ -28,9 +28,13 @@ const (
 )
 
 // authenticate checks that the request's headers HTTP basic auth credentials
-// match the superuser credentials stored in the API handler.
-// A params.ErrUnauthorized is returned if the authentication fails.
-func (h *Handler) authenticate(w http.ResponseWriter, req *http.Request, id *charm.Reference, op operation) error {
+// match the superuser credentials stored in the API handler or that
+// there is a valid macaroon presented.
+//
+// A params.ErrUnauthorized error is returned if superuser credentials fail;
+// otherwise a macaroon is minted and a httpbakery discharge-required
+// error is returned holding the macaroon.
+func (h *Handler) authenticate(w http.ResponseWriter, req *http.Request, id *charm.Reference, acl []string) error {
 	logger.Infof("authenticate, bakery %p, auth location %q", h.store.Bakery, h.config.AuthLocation)
 
 	// If basic auth credentials are presented, use them,
@@ -61,14 +65,20 @@ func (h *Handler) authenticate(w http.ResponseWriter, req *http.Request, id *cha
 	return httpbakery.NewDischargeRequiredError(m, verr)
 }
 
+const userNameAttr = "username"
+
+func (h *Handler) checkACLMembership(attrs map[string]string, acl []string) error {
+	user := attrs[userNameAttr]
+	
+}
+
 func (h *Handler) newMacaroon() (*macaroon.Macaroon, error) {
 	// TODO generate different caveats depending on the requested operation
 	// and whether there's a charm id or not.
 	// Mint an appropriate macaroon and send it back to the client.
 	return h.store.Bakery.NewMacaroon("", nil, []checkers.Caveat{{
 		Location: h.config.AuthLocation,
-		// TODO needs-declared user is-authenticated-user
-		Condition: "is-authenticated-user",
+		Condition: "need-declared username is-authenticated-user",
 	}})
 }
 
