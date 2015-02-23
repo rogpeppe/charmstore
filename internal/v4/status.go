@@ -12,11 +12,20 @@ import (
 
 	"github.com/juju/utils/debugstatus"
 	"gopkg.in/errgo.v1"
+	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 
 	"github.com/juju/charmstore/internal/mongodoc"
 	"github.com/juju/charmstore/params"
 )
+
+func init() {
+	mgo.SetStats(true)
+}
+
+func (h *Handler) serveMongoStats(_ http.Header, req *http.Request) (interface{}, error) {
+	return mgo.GetStats(), nil
+}
 
 // GET /debug/status
 // https://github.com/juju/charmstore/blob/v4/docs/API.md#get-debugstatus
