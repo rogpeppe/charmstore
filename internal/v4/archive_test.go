@@ -51,12 +51,12 @@ func (s *ArchiveSuite) SetUpTest(c *gc.C) {
 
 func (s *ArchiveSuite) TestGet(c *gc.C) {
 	patchArchiveCacheAges(s)
-	wordpress := s.assertUploadCharm(c, "POST", charm.MustParseReference("cs:precise/wordpress-0"), "wordpress")
+	wordpress := s.assertUploadCharm(c, "POST", charm.MustParseReference("cs:~charmers/precise/wordpress-0"), nil, "wordpress")
 
 	archiveBytes, err := ioutil.ReadFile(wordpress.Path)
 	c.Assert(err, gc.IsNil)
 
-	archiveUrl := storeURL("precise/wordpress-0/archive")
+	archiveUrl := storeURL("~charmers/precise/wordpress-0/archive")
 	rec := httptesting.DoRequest(c, httptesting.DoRequestParams{
 		Handler: s.srv,
 		URL:     archiveUrl,
@@ -64,7 +64,7 @@ func (s *ArchiveSuite) TestGet(c *gc.C) {
 	c.Assert(rec.Code, gc.Equals, http.StatusOK)
 	c.Assert(rec.Body.Bytes(), gc.DeepEquals, archiveBytes)
 	c.Assert(rec.Header().Get(params.ContentHashHeader), gc.Equals, hashOfBytes(archiveBytes))
-	c.Assert(rec.Header().Get(params.EntityIdHeader), gc.Equals, "cs:precise/wordpress-0")
+	c.Assert(rec.Header().Get(params.EntityIdHeader), gc.Equals, "cs:~charmers/precise/wordpress-0")
 	assertCacheControl(c, rec.Header(), true)
 
 	// Check that the HTTP range logic is plugged in OK. If this
@@ -79,14 +79,32 @@ func (s *ArchiveSuite) TestGet(c *gc.C) {
 	c.Assert(rec.Body.Bytes(), gc.HasLen, 100-10+1)
 	c.Assert(rec.Body.Bytes(), gc.DeepEquals, archiveBytes[10:101])
 	c.Assert(rec.Header().Get(params.ContentHashHeader), gc.Equals, hashOfBytes(archiveBytes))
-	c.Assert(rec.Header().Get(params.EntityIdHeader), gc.Equals, "cs:precise/wordpress-0")
+	c.Assert(rec.Header().Get(params.EntityIdHeader), gc.Equals, "cs:~charmers/precise/wordpress-0")
 	assertCacheControl(c, rec.Header(), true)
 }
 
 func (s *ArchiveSuite) TestGetWithPartialId(c *gc.C) {
-	id := "cs:utopic/wordpress-42"
+	id := "cs:~charmers/utopic/wordpress-42"
 	err := s.store.AddCharmWithArchive(
 		charm.MustParseReference(id),
+		nil,
+		storetesting.Charms.CharmArchive(c.MkDir(), "wordpress"))
+	c.Assert(err, gc.IsNil)
+	rec := httptesting.DoRequest(c, httptesting.DoRequestParams{
+		Handler: s.srv,
+		URL:     storeURL("~charmers/wordpress/archive"),
+	})
+	c.Assert(rec.Code, gc.Equals, http.StatusOK)
+	// The complete entity id can be retrieved from the response header.
+	c.Assert(rec.Header().Get(params.EntityIdHeader), gc.Equals, id)
+}
+
+func (s *ArchiveSuite) TestGetPromulgatedWithPartialId(c *gc.C) {
+	id := "cs:~charmers/utopic/wordpress-42"
+	pid := "cs:utopic/wordpress-42"
+	err := s.store.AddCharmWithArchive(
+		charm.MustParseReference(id),
+		charm.MustParseReference(pid),
 		storetesting.Charms.CharmArchive(c.MkDir(), "wordpress"))
 	c.Assert(err, gc.IsNil)
 	rec := httptesting.DoRequest(c, httptesting.DoRequestParams{
@@ -95,7 +113,7 @@ func (s *ArchiveSuite) TestGetWithPartialId(c *gc.C) {
 	})
 	c.Assert(rec.Code, gc.Equals, http.StatusOK)
 	// The complete entity id can be retrieved from the response header.
-	c.Assert(rec.Header().Get(params.EntityIdHeader), gc.Equals, id)
+	c.Assert(rec.Header().Get(params.EntityIdHeader), gc.Equals, pid)
 }
 
 func (s *ArchiveSuite) TestGetCounters(c *gc.C) {
@@ -103,12 +121,14 @@ func (s *ArchiveSuite) TestGetCounters(c *gc.C) {
 		c.Skip("MongoDB JavaScript not available")
 	}
 
-	for i, id := range []string{"utopic/mysql-42", "~who/utopic/mysql-42"} {
+	for i, id := range []string{"~who/utopic/mysql-42"} {
 		c.Logf("test %d: %s", i, id)
 		url := charm.MustParseReference(id)
+		purl := *url
+		purl.User = ""
 
 		// Add a charm to the database (including the archive).
-		err := s.store.AddCharmWithArchive(url, storetesting.Charms.CharmArchive(c.MkDir(), "mysql"))
+		err := s.store.AddCharmWithArchive(url, &purl, storetesting.Charms.CharmArchive(c.MkDir(), "mysql"))
 		c.Assert(err, gc.IsNil)
 
 		// Download the charm archive using the API.
@@ -125,10 +145,10 @@ func (s *ArchiveSuite) TestGetCounters(c *gc.C) {
 }
 
 func (s *ArchiveSuite) TestGetCountersDisabled(c *gc.C) {
-	url := charm.MustParseReference("utopic/mysql-42")
-
+	url := charm.MustParseReference("~charmers/utopic/mysql-42")
+	purl := charm.MustParseReference("utopic/mysql-42")
 	// Add a charm to the database (including the archive).
-	err := s.store.AddCharmWithArchive(url, storetesting.Charms.CharmArchive(c.MkDir(), "mysql"))
+	err := s.store.AddCharmWithArchive(url, purl, storetesting.Charms.CharmArchive(c.MkDir(), "mysql"))
 	c.Assert(err, gc.IsNil)
 
 	// Download the charm archive using the API, passing stats=0.
@@ -152,25 +172,25 @@ var archivePostErrorsTests = []struct {
 	expectCode      params.ErrorCode
 }{{
 	about:         "no series",
-	path:          "wordpress/archive",
+	path:          "~charmers/wordpress/archive",
 	expectStatus:  http.StatusBadRequest,
 	expectMessage: "series not specified",
 	expectCode:    params.ErrBadRequest,
 }, {
 	about:         "revision specified",
-	path:          "precise/wordpress-23/archive",
+	path:          "~charmers/precise/wordpress-23/archive",
 	expectStatus:  http.StatusBadRequest,
 	expectMessage: "revision specified, but should not be specified",
 	expectCode:    params.ErrBadRequest,
 }, {
 	about:         "no hash given",
-	path:          "precise/wordpress/archive",
+	path:          "~charmers/precise/wordpress/archive",
 	expectStatus:  http.StatusBadRequest,
 	expectMessage: "hash parameter not specified",
 	expectCode:    params.ErrBadRequest,
 }, {
 	about:           "no content length",
-	path:            "precise/wordpress/archive?hash=1234563",
+	path:            "~charmers/precise/wordpress/archive?hash=1234563",
 	noContentLength: true,
 	expectStatus:    http.StatusBadRequest,
 	expectMessage:   "Content-Length not specified",
@@ -238,7 +258,7 @@ func (s *ArchiveSuite) TestConcurrentUploads(c *gc.C) {
 	upload := func() {
 		c.Logf("uploading")
 		body := bytes.NewReader(buf.Bytes())
-		url := srv.URL + storeURL("precise/wordpress/archive?hash="+hash)
+		url := srv.URL + storeURL("~charmers/precise/wordpress/archive?hash="+hash)
 		req, err := http.NewRequest("POST", url, body)
 		c.Assert(err, gc.IsNil)
 		req.Header.Set("Content-Type", "application/zip")
@@ -324,17 +344,29 @@ loop:
 
 func (s *ArchiveSuite) TestPostCharm(c *gc.C) {
 	// A charm that did not exist before should get revision 0.
-	s.assertUploadCharm(c, "POST", charm.MustParseReference("precise/wordpress-0"), "wordpress")
+	s.assertUploadCharm(c, "POST", charm.MustParseReference("~charmers/precise/wordpress-0"), nil, "wordpress")
 
 	// Subsequent charm uploads should increment the
 	// revision by 1.
-	s.assertUploadCharm(c, "POST", charm.MustParseReference("precise/wordpress-1"), "mysql")
+	s.assertUploadCharm(c, "POST", charm.MustParseReference("~charmers/precise/wordpress-1"), nil, "mysql")
 }
 
 func (s *ArchiveSuite) TestPutCharm(c *gc.C) {
-	s.assertUploadCharm(c, "PUT", charm.MustParseReference("precise/wordpress-3"), "wordpress")
+	s.assertUploadCharm(
+		c,
+		"PUT",
+		charm.MustParseReference("~charmers/precise/wordpress-3"),
+		charm.MustParseReference("precise/wordpress-3"),
+		"wordpress",
+	)
 
-	s.assertUploadCharm(c, "PUT", charm.MustParseReference("precise/wordpress-1"), "wordpress")
+	s.assertUploadCharm(
+		c,
+		"PUT",
+		charm.MustParseReference("~charmers/precise/wordpress-1"),
+		charm.MustParseReference("precise/wordpress-1"),
+		"wordpress",
+	)
 
 	// Check that we get a duplicate-upload error if we try to
 	// upload to the same revision again.
@@ -347,7 +379,7 @@ func (s *ArchiveSuite) TestPutCharm(c *gc.C) {
 	c.Assert(err, gc.IsNil)
 	httptesting.AssertJSONCall(c, httptesting.JSONCallParams{
 		Handler:       s.srv,
-		URL:           storeURL("precise/wordpress-3/archive?hash=" + hash),
+		URL:           storeURL("~charmers/precise/wordpress-3/archive?hash=" + hash),
 		Method:        "PUT",
 		ContentLength: size,
 		Header: http.Header{
@@ -367,30 +399,33 @@ func (s *ArchiveSuite) TestPutCharm(c *gc.C) {
 func (s *ArchiveSuite) TestPostBundle(c *gc.C) {
 	// Upload the required charms.
 	err := s.store.AddCharmWithArchive(
+		charm.MustParseReference("cs:~charmers/utopic/mysql-42"),
 		charm.MustParseReference("cs:utopic/mysql-42"),
 		storetesting.Charms.CharmArchive(c.MkDir(), "mysql"))
 	c.Assert(err, gc.IsNil)
 	err = s.store.AddCharmWithArchive(
+		charm.MustParseReference("cs:~charmers/utopic/wordpress-47"),
 		charm.MustParseReference("cs:utopic/wordpress-47"),
 		storetesting.Charms.CharmArchive(c.MkDir(), "wordpress"))
 	c.Assert(err, gc.IsNil)
 	err = s.store.AddCharmWithArchive(
+		charm.MustParseReference("cs:~charmers/utopic/logging-1"),
 		charm.MustParseReference("cs:utopic/logging-1"),
 		storetesting.Charms.CharmArchive(c.MkDir(), "logging"))
 	c.Assert(err, gc.IsNil)
 
 	// A bundle that did not exist before should get revision 0.
-	s.assertUploadBundle(c, "POST", charm.MustParseReference("bundle/wordpress-simple-0"), "wordpress-simple")
+	s.assertUploadBundle(c, "POST", charm.MustParseReference("~charmers/bundle/wordpress-simple-0"), nil, "wordpress-simple")
 
 	// Subsequent bundle uploads should increment the
 	// revision by 1.
-	s.assertUploadBundle(c, "POST", charm.MustParseReference("bundle/wordpress-simple-1"), "wordpress-with-logging")
+	s.assertUploadBundle(c, "POST", charm.MustParseReference("~charmers/bundle/wordpress-simple-1"), nil, "wordpress-with-logging")
 
 	// Uploading the same archive twice should not increment the revision...
-	s.assertUploadBundle(c, "POST", charm.MustParseReference("bundle/wordpress-simple-1"), "wordpress-with-logging")
+	s.assertUploadBundle(c, "POST", charm.MustParseReference("~charmers/bundle/wordpress-simple-1"), nil, "wordpress-with-logging")
 
 	// ... but uploading an archive used by a previous revision should.
-	s.assertUploadBundle(c, "POST", charm.MustParseReference("bundle/wordpress-simple-2"), "wordpress-simple")
+	s.assertUploadBundle(c, "POST", charm.MustParseReference("~charmers/bundle/wordpress-simple-2"), nil, "wordpress-simple")
 }
 
 func (s *ArchiveSuite) TestPostHashMismatch(c *gc.C) {
@@ -399,7 +434,7 @@ func (s *ArchiveSuite) TestPostHashMismatch(c *gc.C) {
 
 	// Corrupt the content.
 	copy(content, "bogus")
-	path := fmt.Sprintf("precise/wordpress/archive?hash=%s", hash)
+	path := fmt.Sprintf("~charmers/precise/wordpress/archive?hash=%s", hash)
 	httptesting.AssertJSONCall(c, httptesting.JSONCallParams{
 		Handler: s.srv,
 		URL:     storeURL(path),
@@ -422,11 +457,11 @@ func invalidZip() io.ReadSeeker {
 }
 
 func (s *ArchiveSuite) TestPostInvalidCharmZip(c *gc.C) {
-	s.assertCannotUpload(c, "precise/wordpress", invalidZip(), "cannot read charm archive: zip: not a valid zip file")
+	s.assertCannotUpload(c, "~charmers/precise/wordpress", invalidZip(), "cannot read charm archive: zip: not a valid zip file")
 }
 
 func (s *ArchiveSuite) TestPostInvalidBundleZip(c *gc.C) {
-	s.assertCannotUpload(c, "bundle/wordpress", invalidZip(), "cannot read bundle archive: zip: not a valid zip file")
+	s.assertCannotUpload(c, "~charmers/bundle/wordpress", invalidZip(), "cannot read bundle archive: zip: not a valid zip file")
 }
 
 var postInvalidCharmMetadataTests = []struct {
@@ -518,7 +553,7 @@ func (s *ArchiveSuite) TestPostInvalidCharmMetadata(c *gc.C) {
 		c.Logf("test %d: %s", i, test.about)
 		ch := charmtesting.NewCharm(c, test.spec)
 		r := bytes.NewReader(ch.ArchiveBytes())
-		s.assertCannotUpload(c, "trusty/wordpress", r, test.expectError)
+		s.assertCannotUpload(c, "~charmers/trusty/wordpress", r, test.expectError)
 	}
 }
 
@@ -533,7 +568,7 @@ func (s *ArchiveSuite) TestPostInvalidBundleData(c *gc.C) {
 		`"relation [\"foo:db\" \"mysql:server\"] refers to service \"foo\" not defined in this bundle",` +
 		`"service \"mysql\" refers to non-existent charm \"mysql\"",` +
 		`"service \"wordpress\" refers to non-existent charm \"wordpress\""]`
-	s.assertCannotUpload(c, "bundle/wordpress", f, expectErr)
+	s.assertCannotUpload(c, "~charmers/bundle/wordpress", f, expectErr)
 }
 
 func (s *ArchiveSuite) TestPostCounters(c *gc.C) {
@@ -541,10 +576,10 @@ func (s *ArchiveSuite) TestPostCounters(c *gc.C) {
 		c.Skip("MongoDB JavaScript not available")
 	}
 
-	s.assertUploadCharm(c, "POST", charm.MustParseReference("precise/wordpress-0"), "wordpress")
+	s.assertUploadCharm(c, "POST", charm.MustParseReference("~charmers/precise/wordpress-0"), nil, "wordpress")
 
 	// Check that the upload count for the entity has been updated.
-	key := []string{params.StatsArchiveUpload, "precise", "wordpress", ""}
+	key := []string{params.StatsArchiveUpload, "precise", "wordpress", "charmers"}
 	stats.CheckCounterSum(c, s.store, key, false, 1)
 }
 
@@ -570,14 +605,14 @@ func (s *ArchiveSuite) TestPostFailureCounters(c *gc.C) {
 	}
 
 	// Send a first invalid request (revision specified).
-	doPost("utopic/wordpress-42/archive", http.StatusBadRequest)
+	doPost("~charmers/utopic/wordpress-42/archive", http.StatusBadRequest)
 	// Send a second invalid request (no hash).
-	doPost("utopic/wordpress/archive", http.StatusBadRequest)
+	doPost("~charmers/utopic/wordpress/archive", http.StatusBadRequest)
 	// Send a third invalid request (invalid zip).
-	doPost("utopic/wordpress/archive?hash="+hash, http.StatusInternalServerError)
+	doPost("~charmers/utopic/wordpress/archive?hash="+hash, http.StatusInternalServerError)
 
 	// Check that the failed upload count for the entity has been updated.
-	key := []string{params.StatsArchiveFailedUpload, "utopic", "wordpress", ""}
+	key := []string{params.StatsArchiveFailedUpload, "utopic", "wordpress", "charmers"}
 	stats.CheckCounterSum(c, s.store, key, false, 3)
 }
 
@@ -611,9 +646,9 @@ func (s *ArchiveSuite) assertCannotUpload(c *gc.C, id string, content io.ReadSee
 // assertUploadCharm uploads the testing charm with the given name
 // through the API. The URL must hold the expected revision
 // that the charm will be given when uploaded.
-func (s *ArchiveSuite) assertUploadCharm(c *gc.C, method string, url *charm.Reference, charmName string) *charm.CharmArchive {
+func (s *ArchiveSuite) assertUploadCharm(c *gc.C, method string, url, purl *charm.Reference, charmName string) *charm.CharmArchive {
 	ch := storetesting.Charms.CharmArchive(c.MkDir(), charmName)
-	size := s.assertUpload(c, method, url, ch.Path)
+	size := s.assertUpload(c, method, url, purl, ch.Path)
 	s.assertEntityInfo(c, url, entityInfo{
 		Id: url,
 		Meta: entityMetaInfo{
@@ -629,11 +664,11 @@ func (s *ArchiveSuite) assertUploadCharm(c *gc.C, method string, url *charm.Refe
 // assertUploadBundle uploads the testing bundle with the given name
 // through the API. The URL must hold the expected revision
 // that the bundle will be given when uploaded.
-func (s *ArchiveSuite) assertUploadBundle(c *gc.C, method string, url *charm.Reference, bundleName string) {
+func (s *ArchiveSuite) assertUploadBundle(c *gc.C, method string, url, purl *charm.Reference, bundleName string) {
 	path := storetesting.Charms.BundleArchivePath(c.MkDir(), bundleName)
 	b, err := charm.ReadBundleArchive(path)
 	c.Assert(err, gc.IsNil)
-	size := s.assertUpload(c, method, url, path)
+	size := s.assertUpload(c, method, url, purl, path)
 	s.assertEntityInfo(c, url, entityInfo{
 		Id: url,
 		Meta: entityMetaInfo{
@@ -644,7 +679,7 @@ func (s *ArchiveSuite) assertUploadBundle(c *gc.C, method string, url *charm.Ref
 	)
 }
 
-func (s *ArchiveSuite) assertUpload(c *gc.C, method string, url *charm.Reference, fileName string) (size int64) {
+func (s *ArchiveSuite) assertUpload(c *gc.C, method string, url, purl *charm.Reference, fileName string) (size int64) {
 	f, err := os.Open(fileName)
 	c.Assert(err, gc.IsNil)
 	defer f.Close()
@@ -665,6 +700,9 @@ func (s *ArchiveSuite) assertUpload(c *gc.C, method string, url *charm.Reference
 	}
 
 	path := fmt.Sprintf("%s/archive?hash=%s", strings.TrimPrefix(uploadURL.String(), "cs:"), hashSum)
+	if purl != nil {
+		path += fmt.Sprintf("&%s", purl.String())
+	}
 	httptesting.AssertJSONCall(c, httptesting.JSONCallParams{
 		Handler:       s.srv,
 		URL:           storeURL(path),
@@ -702,19 +740,19 @@ var archiveFileErrorsTests = []struct {
 	expectCode    params.ErrorCode
 }{{
 	about:         "entity not found",
-	path:          "trusty/no-such-42/archive/icon.svg",
+	path:          "~charmers/trusty/no-such-42/archive/icon.svg",
 	expectStatus:  http.StatusNotFound,
 	expectMessage: "entity not found",
 	expectCode:    params.ErrNotFound,
 }, {
 	about:         "directory listing",
-	path:          "utopic/wordpress-0/archive/hooks",
+	path:          "~charmers/utopic/wordpress-0/archive/hooks",
 	expectStatus:  http.StatusForbidden,
 	expectMessage: "directory listing not allowed",
 	expectCode:    params.ErrForbidden,
 }, {
 	about:         "file not found",
-	path:          "utopic/wordpress-0/archive/no-such",
+	path:          "~charmers/utopic/wordpress-0/archive/no-such",
 	expectStatus:  http.StatusNotFound,
 	expectMessage: `file "no-such" not found in the archive`,
 	expectCode:    params.ErrNotFound,
@@ -722,8 +760,9 @@ var archiveFileErrorsTests = []struct {
 
 func (s *ArchiveSuite) TestArchiveFileErrors(c *gc.C) {
 	wordpress := storetesting.Charms.CharmArchive(c.MkDir(), "wordpress")
-	url := charm.MustParseReference("cs:utopic/wordpress-0")
-	err := s.store.AddCharmWithArchive(url, wordpress)
+	url := charm.MustParseReference("cs:~charmers/utopic/wordpress-0")
+	purl := charm.MustParseReference("cs:utopic/wordpress-0")
+	err := s.store.AddCharmWithArchive(url, purl, wordpress)
 	c.Assert(err, gc.IsNil)
 	for i, test := range archiveFileErrorsTests {
 		c.Logf("test %d: %s", i, test.about)
@@ -742,7 +781,7 @@ func (s *ArchiveSuite) TestArchiveFileErrors(c *gc.C) {
 
 func (s *ArchiveSuite) TestArchiveFileGet(c *gc.C) {
 	ch := storetesting.Charms.CharmArchive(c.MkDir(), "all-hooks")
-	err := s.store.AddCharmWithArchive(charm.MustParseReference("cs:utopic/all-hooks-0"), ch)
+	err := s.store.AddCharmWithArchive(charm.MustParseReference("cs:~charmers/utopic/all-hooks-0"), charm.MustParseReference("cs:utopic/all-hooks-0"), ch)
 	c.Assert(err, gc.IsNil)
 	zipFile, err := zip.OpenReader(ch.Path)
 	c.Assert(err, gc.IsNil)
@@ -751,9 +790,9 @@ func (s *ArchiveSuite) TestArchiveFileGet(c *gc.C) {
 	patchArchiveCacheAges(s)
 
 	// Check a file in the root directory.
-	s.assertArchiveFileContents(c, zipFile, "utopic/all-hooks-0/archive/metadata.yaml")
+	s.assertArchiveFileContents(c, zipFile, "~charmers/utopic/all-hooks-0/archive/metadata.yaml")
 	// Check a file in a subdirectory.
-	s.assertArchiveFileContents(c, zipFile, "utopic/all-hooks-0/archive/hooks/install")
+	s.assertArchiveFileContents(c, zipFile, "~charmers/utopic/all-hooks-0/archive/hooks/install")
 }
 
 // assertArchiveFileContents checks that the response returned by the
@@ -797,15 +836,24 @@ func (s *ArchiveSuite) TestBundleCharms(c *gc.C) {
 	// Populate the store with some testing charms.
 	mysql := storetesting.Charms.CharmArchive(c.MkDir(), "mysql")
 	err := s.store.AddCharmWithArchive(
-		charm.MustParseReference("cs:saucy/mysql-0"), mysql)
+		charm.MustParseReference("cs:~charmers/saucy/mysql-0"),
+		charm.MustParseReference("cs:saucy/mysql-0"),
+		mysql,
+	)
 	c.Assert(err, gc.IsNil)
 	riak := storetesting.Charms.CharmArchive(c.MkDir(), "riak")
 	err = s.store.AddCharmWithArchive(
-		charm.MustParseReference("cs:trusty/riak-42"), riak)
+		charm.MustParseReference("cs:~charmers/trusty/riak-42"),
+		charm.MustParseReference("cs:trusty/riak-42"),
+		riak,
+	)
 	c.Assert(err, gc.IsNil)
 	wordpress := storetesting.Charms.CharmArchive(c.MkDir(), "wordpress")
 	err = s.store.AddCharmWithArchive(
-		charm.MustParseReference("cs:utopic/wordpress-47"), wordpress)
+		charm.MustParseReference("cs:~charmers/utopic/wordpress-47"),
+		charm.MustParseReference("cs:utopic/wordpress-47"),
+		wordpress,
+	)
 	c.Assert(err, gc.IsNil)
 
 	// Retrieve the bundleCharms method.
@@ -820,47 +868,47 @@ func (s *ArchiveSuite) TestBundleCharms(c *gc.C) {
 	}, {
 		about: "fully qualified ids",
 		ids: []string{
-			"cs:saucy/mysql-0",
-			"cs:trusty/riak-42",
-			"cs:utopic/wordpress-47",
+			"cs:~charmers/saucy/mysql-0",
+			"cs:~charmers/trusty/riak-42",
+			"cs:~charmers/utopic/wordpress-47",
 		},
 		charms: map[string]charm.Charm{
-			"cs:saucy/mysql-0":       mysql,
-			"cs:trusty/riak-42":      riak,
-			"cs:utopic/wordpress-47": wordpress,
+			"cs:~charmers/saucy/mysql-0":       mysql,
+			"cs:~charmers/trusty/riak-42":      riak,
+			"cs:~charmers/utopic/wordpress-47": wordpress,
 		},
 	}, {
 		about: "partial ids",
-		ids:   []string{"utopic/wordpress", "mysql-0", "riak"},
+		ids:   []string{"~charmers/utopic/wordpress", "~charmers/mysql-0", "~charmers/riak"},
 		charms: map[string]charm.Charm{
-			"mysql-0":          mysql,
-			"riak":             riak,
-			"utopic/wordpress": wordpress,
+			"~charmers/mysql-0":          mysql,
+			"~charmers/riak":             riak,
+			"~charmers/utopic/wordpress": wordpress,
 		},
 	}, {
 		about: "charm not found",
-		ids:   []string{"utopic/no-such", "mysql"},
+		ids:   []string{"utopic/no-such", "~charmers/mysql"},
 		charms: map[string]charm.Charm{
-			"mysql": mysql,
+			"~charmers/mysql": mysql,
 		},
 	}, {
 		about: "no charms found",
 		ids: []string{
-			"cs:saucy/mysql-99",   // Revision not present.
-			"cs:precise/riak-42",  // Series not present.
-			"cs:utopic/django-47", // Name not present.
+			"cs:~charmers/saucy/mysql-99",   // Revision not present.
+			"cs:~charmers/precise/riak-42",  // Series not present.
+			"cs:~charmers/utopic/django-47", // Name not present.
 		},
 	}, {
 		about: "repeated charms",
 		ids: []string{
-			"cs:saucy/mysql",
-			"cs:trusty/riak-42",
-			"mysql",
+			"cs:~charmers/saucy/mysql",
+			"cs:~charmers/trusty/riak-42",
+			"~charmers/mysql",
 		},
 		charms: map[string]charm.Charm{
-			"cs:saucy/mysql":    mysql,
-			"cs:trusty/riak-42": riak,
-			"mysql":             mysql,
+			"cs:~charmers/saucy/mysql":    mysql,
+			"cs:~charmers/trusty/riak-42": riak,
+			"~charmers/mysql":             mysql,
 		},
 	}}
 
@@ -886,9 +934,9 @@ func (s *ArchiveSuite) TestBundleCharms(c *gc.C) {
 
 func (s *ArchiveSuite) TestDelete(c *gc.C) {
 	// Add a charm to the database (including the archive).
-	id := "utopic/mysql-42"
+	id := "~charmers/utopic/mysql-42"
 	url := charm.MustParseReference(id)
-	err := s.store.AddCharmWithArchive(url, storetesting.Charms.CharmArchive(c.MkDir(), "mysql"))
+	err := s.store.AddCharmWithArchive(url, nil, storetesting.Charms.CharmArchive(c.MkDir(), "mysql"))
 	c.Assert(err, gc.IsNil)
 
 	// Retrieve the corresponding entity.
@@ -918,9 +966,10 @@ func (s *ArchiveSuite) TestDelete(c *gc.C) {
 
 func (s *ArchiveSuite) TestDeleteSpecificCharm(c *gc.C) {
 	// Add a couple of charms to the database.
-	for _, id := range []string{"trusty/mysql-42", "utopic/mysql-42", "utopic/mysql-47"} {
+	for _, id := range []string{"~charmers/trusty/mysql-42", "~charmers/utopic/mysql-42", "~charmers/utopic/mysql-47"} {
 		err := s.store.AddCharmWithArchive(
 			charm.MustParseReference(id),
+			nil,
 			storetesting.Charms.CharmArchive(c.MkDir(), "mysql"))
 		c.Assert(err, gc.IsNil)
 	}
@@ -928,7 +977,7 @@ func (s *ArchiveSuite) TestDeleteSpecificCharm(c *gc.C) {
 	// Delete the second charm using the API.
 	httptesting.AssertJSONCall(c, httptesting.JSONCallParams{
 		Handler:      s.srv,
-		URL:          storeURL("utopic/mysql-42/archive"),
+		URL:          storeURL("~charmers/utopic/mysql-42/archive"),
 		Method:       "DELETE",
 		Username:     serverParams.AuthUsername,
 		Password:     serverParams.AuthPassword,
@@ -937,8 +986,8 @@ func (s *ArchiveSuite) TestDeleteSpecificCharm(c *gc.C) {
 
 	// The other two charms are still present in the database.
 	urls := []*charm.Reference{
-		charm.MustParseReference("trusty/mysql-42"),
-		charm.MustParseReference("utopic/mysql-47"),
+		charm.MustParseReference("~charmers/trusty/mysql-42"),
+		charm.MustParseReference("~charmers/utopic/mysql-47"),
 	}
 	count, err := s.store.DB.Entities().Find(bson.D{{
 		"_id", bson.D{{"$in", urls}},
@@ -965,7 +1014,7 @@ func (s *ArchiveSuite) TestDeleteNotFound(c *gc.C) {
 
 func (s *ArchiveSuite) TestDeleteError(c *gc.C) {
 	// Add a charm to the database (not including the archive).
-	id := "utopic/mysql-42"
+	id := "~charmers/utopic/mysql-42"
 	url := charm.MustParseReference(id)
 	err := s.store.AddCharm(storetesting.Charms.CharmArchive(c.MkDir(), "mysql"),
 		charmstore.AddParams{
@@ -996,9 +1045,10 @@ func (s *ArchiveSuite) TestDeleteCounters(c *gc.C) {
 	}
 
 	// Add a charm to the database (including the archive).
-	id := "utopic/mysql-42"
+	id := "~charmers/utopic/mysql-42"
 	err := s.store.AddCharmWithArchive(
 		charm.MustParseReference(id),
+		nil,
 		storetesting.Charms.CharmArchive(c.MkDir(), "mysql"))
 	c.Assert(err, gc.IsNil)
 
@@ -1013,7 +1063,7 @@ func (s *ArchiveSuite) TestDeleteCounters(c *gc.C) {
 	c.Assert(rec.Code, gc.Equals, http.StatusOK)
 
 	// Check that the delete count for the entity has been updated.
-	key := []string{params.StatsArchiveDelete, "utopic", "mysql", "", "42"}
+	key := []string{params.StatsArchiveDelete, "utopic", "mysql", "charmers", "42"}
 	stats.CheckCounterSum(c, s.store, key, false, 1)
 }
 
@@ -1110,8 +1160,8 @@ func (s *ArchiveSuite) assertEntityInfo(c *gc.C, url *charm.Reference, expect en
 }
 
 func (s *ArchiveSuite) TestArchiveFileGetHasCORSHeaders(c *gc.C) {
-	id := "precise/wordpress-0"
-	s.assertUploadCharm(c, "POST", charm.MustParseReference(id), "wordpress")
+	id := "~charmers/precise/wordpress-0"
+	s.assertUploadCharm(c, "POST", charm.MustParseReference(id), nil, "wordpress")
 	rec := httptesting.DoRequest(c, httptesting.DoRequestParams{
 		Handler: s.srv,
 		URL:     storeURL(fmt.Sprintf("%s/archive/metadata.yaml", id)),
@@ -1162,7 +1212,7 @@ func (s *ArchiveSuite) TestGetPromulgatedURL(c *gc.C) {
 		ACLs: mongodoc.ACL{
 			Read: []string{"everyone", "dduck"},
 		},
-		Promulgated: false,
+		Promulgated: 0,
 	})
 	c.Assert(err, gc.IsNil)
 	err = s.store.DB.BaseEntities().Insert(&mongodoc.BaseEntity{
@@ -1173,7 +1223,7 @@ func (s *ArchiveSuite) TestGetPromulgatedURL(c *gc.C) {
 		ACLs: mongodoc.ACL{
 			Read: []string{"everyone", "goofy"},
 		},
-		Promulgated: true,
+		Promulgated: 1,
 	})
 	c.Assert(err, gc.IsNil)
 	err = s.store.DB.BaseEntities().Insert(&mongodoc.BaseEntity{
@@ -1184,7 +1234,7 @@ func (s *ArchiveSuite) TestGetPromulgatedURL(c *gc.C) {
 		ACLs: mongodoc.ACL{
 			Read: []string{"everyone", "pluto"},
 		},
-		Promulgated: true,
+		Promulgated: 1,
 	})
 	c.Assert(err, gc.IsNil)
 	err = s.store.DB.BaseEntities().Insert(&mongodoc.BaseEntity{
@@ -1195,7 +1245,7 @@ func (s *ArchiveSuite) TestGetPromulgatedURL(c *gc.C) {
 		ACLs: mongodoc.ACL{
 			Read: []string{"everyone", "tom"},
 		},
-		Promulgated: true,
+		Promulgated: 1,
 	})
 	c.Assert(err, gc.IsNil)
 	err = s.store.DB.BaseEntities().Insert(&mongodoc.BaseEntity{
@@ -1206,7 +1256,7 @@ func (s *ArchiveSuite) TestGetPromulgatedURL(c *gc.C) {
 		ACLs: mongodoc.ACL{
 			Read: []string{"everyone", "jerry"},
 		},
-		Promulgated: false,
+		Promulgated: 0,
 	})
 	c.Assert(err, gc.IsNil)
 	err = s.store.DB.BaseEntities().Insert(&mongodoc.BaseEntity{
@@ -1217,7 +1267,7 @@ func (s *ArchiveSuite) TestGetPromulgatedURL(c *gc.C) {
 		ACLs: mongodoc.ACL{
 			Read: []string{"everyone", "tom"},
 		},
-		Promulgated: true,
+		Promulgated: 1,
 	})
 	c.Assert(err, gc.IsNil)
 	err = s.store.DB.Entities().Insert(&mongodoc.Entity{
@@ -1332,12 +1382,12 @@ func (s *ArchiveSearchSuite) TestGetSearchUpdate(c *gc.C) {
 		c.Skip("MongoDB JavaScript not available")
 	}
 
-	for i, id := range []string{"utopic/mysql-42", "~who/utopic/mysql-42"} {
+	for i, id := range []string{"~charmers/utopic/mysql-42", "~who/utopic/mysql-42"} {
 		c.Logf("test %d: %s", i, id)
 		url := charm.MustParseReference(id)
 
 		// Add a charm to the database (including the archive).
-		err := s.store.AddCharmWithArchive(url, storetesting.Charms.CharmArchive(c.MkDir(), "mysql"))
+		err := s.store.AddCharmWithArchive(url, nil, storetesting.Charms.CharmArchive(c.MkDir(), "mysql"))
 		c.Assert(err, gc.IsNil)
 
 		// Download the charm archive using the API.

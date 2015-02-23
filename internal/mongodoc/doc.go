@@ -101,7 +101,7 @@ type Entity struct {
 
 	// PromulgatedURL holds the promulgated URL of the entity. If the entity
 	// is not promulgated this should be set to nil.
-	PromulgatedURL *charm.Reference `bson:"promulgated-url,omitempty"`
+	PromulgatedURL *charm.Reference `json:",omitempty" bson:"promulgated-url,omitempty"`
 
 	// PromulgatedRevision holds the revision number from the promulgated URL.
 	// If the entity is not promulgated this should be set to -1.
@@ -135,7 +135,7 @@ type BaseEntity struct {
 
 	// Promulgated specifies whether the charm or bundle should be
 	// promulgated.
-	Promulgated bool
+	Promulgated int
 }
 
 // ACL holds lists of users and groups that are

@@ -4,6 +4,8 @@
 package charmstore
 
 import (
+	"encoding/json"
+
 	"gopkg.in/errgo.v1"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
@@ -31,6 +33,9 @@ var migrations = []migration{{
 }, {
 	name:    "write acl creation",
 	migrate: populateWriteACL,
+}, {
+	name:    "populate promulgated entities",
+	migrate: populatePromulgatedEntities,
 }}
 
 // migration holds a migration function with its corresponding name.
@@ -220,5 +225,75 @@ func populateWriteACL(db StoreDatabase) error {
 		return errgo.Notef(err, "cannot iterate base entities")
 	}
 	logger.Infof("%d base entities updated", counter)
+	return nil
+}
+
+func populatePromulgatedEntities(db StoreDatabase) error {
+	entities := db.Entities()
+	iter := entities.Find(bson.D{{"user", ""}}).Select(bson.D{
+		{"_id", 1},
+		{"baseurl", 1},
+		{"blobhash", 1},
+		{"extrainfo.bzr-owner", 1},
+	}).Sort("revision").Iter()
+	var entity mongodoc.Entity
+	for iter.Next(&entity) {
+		logger.Debugf("URL: %s", entity.URL)
+		var user string
+		if err := json.Unmarshal([]byte(entity.ExtraInfo["bzr-owner"]), &user); err != nil {
+			return errgo.Notef(err, "cannot unmarshal user from extra-info")
+		}
+		if user == "" {
+			return errgo.Newf("no user for %q", entity.URL)
+		}
+		logger.Debugf("user: %s", user)
+		err := entities.Update(
+			bson.D{
+				{"user", user},
+				{"name", entity.URL.Name},
+				{"series", entity.URL.Series},
+				{"blobhash", entity.BlobHash},
+			},
+			bson.D{{"$set", bson.D{
+				{"promulgated-url", entity.URL},
+				{"promulgated-revision", entity.URL.Revision},
+			}}},
+		)
+		if err != nil {
+			return errgo.Notef(err, "cannot update entity for promulgated charm or bundle %q", entity.URL)
+		}
+		_, err = db.BaseEntities().UpdateAll(
+			bson.D{{"$or", []bson.D{
+				{{"$and", []bson.D{
+					{{"name", entity.URL.Name}},
+					{{"user", user}},
+					{{"promulgated", 0}},
+				}}},
+				{{"$and", []bson.D{
+					{{"name", entity.URL.Name}},
+					{{"user", bson.D{{"$ne", user}}}},
+					{{"promulgated", 1}},
+				}},
+				}}}},
+			bson.D{{"$bit", bson.D{{"promulgated", bson.D{{"xor", 1}}}}}},
+		)
+		if err != nil {
+			return errgo.Notef(err, "cannot set promulgated to %s for %s", user, entity.URL.Name)
+		}
+		if err := entities.RemoveId(entity.URL); err != nil && errgo.Cause(err) != mgo.ErrNotFound {
+			return errgo.Notef(err, "cannot remove old promulgated entity %q", entity.URL)
+		}
+		if err := db.BaseEntities().RemoveId(entity.BaseURL); err != nil && errgo.Cause(err) != mgo.ErrNotFound {
+			return errgo.Notef(err, "cannot remove old promulgated base entity %q", entity.URL)
+		}
+	}
+	_, err := entities.UpdateAll(bson.D{{"promulgated-revision", bson.D{{"$exists", false}}}}, bson.D{{"$set", bson.D{{"promulgated-revision", -1}}}})
+	if err != nil {
+		return errgo.Notef(err, "cannot update promulgated revision in non-promulgated entities")
+	}
+	_, err = db.BaseEntities().UpdateAll(bson.D{{"promulgated", bson.D{{"$exists", false}}}}, bson.D{{"$set", bson.D{{"promulgated", 0}}}})
+	if err != nil {
+		return errgo.Notef(err, "cannot update promulgated in non-promulgated base entities")
+	}
 	return nil
 }
