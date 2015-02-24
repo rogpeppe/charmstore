@@ -1003,7 +1003,7 @@ func (s *migrationsSuite) TestPopulatePromulgatedEntities(c *gc.C) {
 		Name:        id2.Name,
 		Public:      true,
 		ACLs:        mongodoc.ACL{},
-		Promulgated: 0,
+		Promulgated: -1,
 	})
 	s.checkBaseEntity(c, &mongodoc.BaseEntity{
 		URL:         baseURL(id3),
@@ -1019,7 +1019,7 @@ func (s *migrationsSuite) TestPopulatePromulgatedEntities(c *gc.C) {
 		Name:        id4.Name,
 		Public:      true,
 		ACLs:        mongodoc.ACL{},
-		Promulgated: 0,
+		Promulgated: -1,
 	})
 	s.checkBaseEntity(c, &mongodoc.BaseEntity{
 		URL:         baseURL(id5),
@@ -1027,7 +1027,7 @@ func (s *migrationsSuite) TestPopulatePromulgatedEntities(c *gc.C) {
 		Name:        id5.Name,
 		Public:      true,
 		ACLs:        mongodoc.ACL{},
-		Promulgated: 0,
+		Promulgated: -1,
 	})
 }
 
@@ -1127,7 +1127,7 @@ func (s *migrationsSuite) TestPopulatePromulgatedEntitiesNoUpdates(c *gc.C) {
 		Name:        id2.Name,
 		ACLs:        mongodoc.ACL{},
 		Public:      true,
-		Promulgated: 0,
+		Promulgated: -1,
 	})
 	c.Assert(err, gc.IsNil)
 	err = s.db.BaseEntities().Insert(&mongodoc.BaseEntity{
@@ -1145,7 +1145,7 @@ func (s *migrationsSuite) TestPopulatePromulgatedEntitiesNoUpdates(c *gc.C) {
 		Name:        id4.Name,
 		ACLs:        mongodoc.ACL{},
 		Public:      true,
-		Promulgated: 0,
+		Promulgated: -1,
 	})
 	c.Assert(err, gc.IsNil)
 	err = s.db.BaseEntities().Insert(&mongodoc.BaseEntity{
@@ -1237,7 +1237,7 @@ func (s *migrationsSuite) TestPopulatePromulgatedEntitiesNoUpdates(c *gc.C) {
 		Name:        id2.Name,
 		Public:      true,
 		ACLs:        mongodoc.ACL{},
-		Promulgated: 0,
+		Promulgated: -1,
 	})
 	s.checkBaseEntity(c, &mongodoc.BaseEntity{
 		URL:         baseURL(id3),
@@ -1253,7 +1253,7 @@ func (s *migrationsSuite) TestPopulatePromulgatedEntitiesNoUpdates(c *gc.C) {
 		Name:        id4.Name,
 		Public:      true,
 		ACLs:        mongodoc.ACL{},
-		Promulgated: 0,
+		Promulgated: -1,
 	})
 	s.checkBaseEntity(c, &mongodoc.BaseEntity{
 		URL:         baseURL(id5),
@@ -1261,7 +1261,7 @@ func (s *migrationsSuite) TestPopulatePromulgatedEntitiesNoUpdates(c *gc.C) {
 		Name:        id5.Name,
 		Public:      true,
 		ACLs:        mongodoc.ACL{},
-		Promulgated: 0,
+		Promulgated: -1,
 	})
 }
 
@@ -1449,7 +1449,7 @@ func (s *migrationsSuite) TestPopulatePromulgatedEntitiesSomeUpdates(c *gc.C) {
 		Name:        id2.Name,
 		Public:      true,
 		ACLs:        mongodoc.ACL{},
-		Promulgated: 0,
+		Promulgated: -1,
 	})
 	s.checkBaseEntity(c, &mongodoc.BaseEntity{
 		URL:         baseURL(id3),
@@ -1465,7 +1465,7 @@ func (s *migrationsSuite) TestPopulatePromulgatedEntitiesSomeUpdates(c *gc.C) {
 		Name:        id4.Name,
 		Public:      true,
 		ACLs:        mongodoc.ACL{},
-		Promulgated: 0,
+		Promulgated: -1,
 	})
 	s.checkBaseEntity(c, &mongodoc.BaseEntity{
 		URL:         baseURL(id5),
@@ -1473,7 +1473,7 @@ func (s *migrationsSuite) TestPopulatePromulgatedEntitiesSomeUpdates(c *gc.C) {
 		Name:        id5.Name,
 		Public:      true,
 		ACLs:        mongodoc.ACL{},
-		Promulgated: 0,
+		Promulgated: -1,
 	})
 }
 

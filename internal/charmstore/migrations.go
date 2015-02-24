@@ -243,6 +243,7 @@ func populatePromulgatedEntities(db StoreDatabase) error {
 	_, err = baseEntities.UpdateAll(
 		bson.D{{"$or", []interface{}{
 			bson.D{{"promulgated", false}},
+			bson.D{{"promulgated", bson.D{{"$ne", 1}}}},
 			bson.D{{"promulgated", bson.D{{"$exists", false}}}},
 		}}},
 		bson.D{{"$set", bson.D{{"promulgated", -1}}}},
