@@ -1517,6 +1517,57 @@ func (s *migrationsSuite) TestPopulatePromulgatedEntitiesNoBlanklBzrOwner(c *gc.
 	c.Assert(err, gc.ErrorMatches, `database migration failed: error executing migration: populate promulgated entities: no user for "cs:trusty/django-42"`)
 }
 
+func (s *migrationsSuite) TestPopulatePromulgatedEntitiesUpdatesBaseEntities(c *gc.C) {
+	s.patchMigrations(c, getMigrations("populate promulgated entities"))
+
+	id1 := charm.MustParseReference("~tom/wordpress")
+	id2 := charm.MustParseReference("~dick/wordpress")
+	id3 := charm.MustParseReference("~harry/wordpress")
+	err := s.db.BaseEntities().Insert(bson.D{
+		{"_id", id1},
+		{"user", id1.User},
+		{"name", id1.Name},
+		{"promulgated", true},
+	})
+	c.Assert(err, gc.IsNil)
+	err = s.db.BaseEntities().Insert(bson.D{
+		{"_id", id2},
+		{"user", id2.User},
+		{"name", id2.Name},
+		{"promulgated", false},
+	})
+	c.Assert(err, gc.IsNil)
+	err = s.db.BaseEntities().Insert(bson.D{
+		{"_id", id3},
+		{"user", id3.User},
+		{"name", id3.Name},
+	})
+	c.Assert(err, gc.IsNil)
+
+	err = s.newServer(c)
+	c.Assert(err, gc.IsNil)
+
+	// Check the updated base entities
+	s.checkBaseEntity(c, &mongodoc.BaseEntity{
+		URL:         id1,
+		User:        id1.User,
+		Name:        id1.Name,
+		Promulgated: 1,
+	})
+	s.checkBaseEntity(c, &mongodoc.BaseEntity{
+		URL:         id2,
+		User:        id2.User,
+		Name:        id2.Name,
+		Promulgated: -1,
+	})
+	s.checkBaseEntity(c, &mongodoc.BaseEntity{
+		URL:         id3,
+		User:        id3.User,
+		Name:        id3.Name,
+		Promulgated: -1,
+	})
+}
+
 func (s *migrationsSuite) checkEntity(c *gc.C, expectEntity *mongodoc.Entity) {
 	var entity mongodoc.Entity
 	err := s.db.Entities().FindId(expectEntity.URL).One(&entity)

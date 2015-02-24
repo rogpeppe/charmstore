@@ -229,16 +229,38 @@ func populateWriteACL(db StoreDatabase) error {
 }
 
 func populatePromulgatedEntities(db StoreDatabase) error {
+	baseEntities := db.BaseEntities()
 	entities := db.Entities()
+
+	// 1. Update All Base Entities to have a promulgated value of the correct form.
+	_, err := baseEntities.UpdateAll(
+		bson.D{{"promulgated", true}},
+		bson.D{{"$set", bson.D{{"promulgated", 1}}}},
+	)
+	if err != nil {
+		return errgo.Notef(err, "cannot set promulgated to initial value")
+	}
+	_, err = baseEntities.UpdateAll(
+		bson.D{{"$or", []interface{}{
+			bson.D{{"promulgated", false}},
+			bson.D{{"promulgated", bson.D{{"$exists", false}}}},
+		}}},
+		bson.D{{"$set", bson.D{{"promulgated", -1}}}},
+	)
+	if err != nil {
+		return errgo.Notef(err, "cannot set promulgated to initial value")
+	}
+
+	// 2. Update entities with users with their promulgated URL.
+	owners := make(map[string]string)
 	iter := entities.Find(bson.D{{"user", ""}}).Select(bson.D{
 		{"_id", 1},
 		{"baseurl", 1},
 		{"blobhash", 1},
 		{"extrainfo.bzr-owner", 1},
-	}).Sort("revision").Iter()
+	}).Sort("name", "revision").Iter()
 	var entity mongodoc.Entity
 	for iter.Next(&entity) {
-		logger.Debugf("URL: %s", entity.URL)
 		var user string
 		if err := json.Unmarshal([]byte(entity.ExtraInfo["bzr-owner"]), &user); err != nil {
 			return errgo.Notef(err, "cannot unmarshal user from extra-info")
@@ -246,7 +268,7 @@ func populatePromulgatedEntities(db StoreDatabase) error {
 		if user == "" {
 			return errgo.Newf("no user for %q", entity.URL)
 		}
-		logger.Debugf("user: %s", user)
+		owners[entity.URL.Name] = user
 		err := entities.Update(
 			bson.D{
 				{"user", user},
@@ -262,38 +284,39 @@ func populatePromulgatedEntities(db StoreDatabase) error {
 		if err != nil {
 			return errgo.Notef(err, "cannot update entity for promulgated charm or bundle %q", entity.URL)
 		}
-		_, err = db.BaseEntities().UpdateAll(
-			bson.D{{"$or", []bson.D{
-				{{"$and", []bson.D{
-					{{"name", entity.URL.Name}},
-					{{"user", user}},
-					{{"promulgated", 0}},
-				}}},
-				{{"$and", []bson.D{
-					{{"name", entity.URL.Name}},
-					{{"user", bson.D{{"$ne", user}}}},
-					{{"promulgated", 1}},
-				}},
-				}}}},
-			bson.D{{"$bit", bson.D{{"promulgated", bson.D{{"xor", 1}}}}}},
+	}
+
+	// 3. Mark the Base Entities for the latest owners promulgated.
+	for name, user := range owners {
+		err := baseEntities.Update(
+			bson.D{{"user", user}, {"name", name}},
+			bson.D{{"$set", bson.D{{"promulgated", 1}}}},
 		)
 		if err != nil {
-			return errgo.Notef(err, "cannot set promulgated to %s for %s", user, entity.URL.Name)
-		}
-		if err := entities.RemoveId(entity.URL); err != nil && errgo.Cause(err) != mgo.ErrNotFound {
-			return errgo.Notef(err, "cannot remove old promulgated entity %q", entity.URL)
-		}
-		if err := db.BaseEntities().RemoveId(entity.BaseURL); err != nil && errgo.Cause(err) != mgo.ErrNotFound {
-			return errgo.Notef(err, "cannot remove old promulgated base entity %q", entity.URL)
+			return errgo.Notef(err, "cannot set promulgated to %s for %s", user, name)
 		}
 	}
-	_, err := entities.UpdateAll(bson.D{{"promulgated-revision", bson.D{{"$exists", false}}}}, bson.D{{"$set", bson.D{{"promulgated-revision", -1}}}})
+
+	// 4. Set PromulgatedRevision for any entity that doesn't have one.
+	_, err = entities.UpdateAll(
+		bson.D{{"promulgated-revision", bson.D{{"$exists", false}}}},
+		bson.D{{"$set", bson.D{{"promulgated-revision", -1}}}},
+	)
 	if err != nil {
 		return errgo.Notef(err, "cannot update promulgated revision in non-promulgated entities")
 	}
-	_, err = db.BaseEntities().UpdateAll(bson.D{{"promulgated", bson.D{{"$exists", false}}}}, bson.D{{"$set", bson.D{{"promulgated", 0}}}})
+
+	// 5. Delete the redundant entities.
+	_, err = entities.RemoveAll(bson.D{{"user", ""}})
 	if err != nil {
-		return errgo.Notef(err, "cannot update promulgated in non-promulgated base entities")
+		return errgo.Notef(err, "cannot remove old entities")
 	}
+
+	// 6. Delete the redundant base entities.
+	_, err = baseEntities.RemoveAll(bson.D{{"user", ""}})
+	if err != nil {
+		return errgo.Notef(err, "cannot remove old base entities")
+	}
+
 	return nil
 }
