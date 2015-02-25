@@ -1212,7 +1212,7 @@ func (s *ArchiveSuite) TestGetPromulgatedURL(c *gc.C) {
 		ACLs: mongodoc.ACL{
 			Read: []string{"everyone", "dduck"},
 		},
-		Promulgated: 0,
+		Promulgated: mongodoc.False,
 	})
 	c.Assert(err, gc.IsNil)
 	err = s.store.DB.BaseEntities().Insert(&mongodoc.BaseEntity{
@@ -1223,7 +1223,7 @@ func (s *ArchiveSuite) TestGetPromulgatedURL(c *gc.C) {
 		ACLs: mongodoc.ACL{
 			Read: []string{"everyone", "goofy"},
 		},
-		Promulgated: 1,
+		Promulgated: mongodoc.True,
 	})
 	c.Assert(err, gc.IsNil)
 	err = s.store.DB.BaseEntities().Insert(&mongodoc.BaseEntity{
@@ -1234,7 +1234,7 @@ func (s *ArchiveSuite) TestGetPromulgatedURL(c *gc.C) {
 		ACLs: mongodoc.ACL{
 			Read: []string{"everyone", "pluto"},
 		},
-		Promulgated: 1,
+		Promulgated: mongodoc.True,
 	})
 	c.Assert(err, gc.IsNil)
 	err = s.store.DB.BaseEntities().Insert(&mongodoc.BaseEntity{
@@ -1245,7 +1245,7 @@ func (s *ArchiveSuite) TestGetPromulgatedURL(c *gc.C) {
 		ACLs: mongodoc.ACL{
 			Read: []string{"everyone", "tom"},
 		},
-		Promulgated: 1,
+		Promulgated: mongodoc.True,
 	})
 	c.Assert(err, gc.IsNil)
 	err = s.store.DB.BaseEntities().Insert(&mongodoc.BaseEntity{
@@ -1256,7 +1256,7 @@ func (s *ArchiveSuite) TestGetPromulgatedURL(c *gc.C) {
 		ACLs: mongodoc.ACL{
 			Read: []string{"everyone", "jerry"},
 		},
-		Promulgated: 0,
+		Promulgated: mongodoc.False,
 	})
 	c.Assert(err, gc.IsNil)
 	err = s.store.DB.BaseEntities().Insert(&mongodoc.BaseEntity{
@@ -1267,7 +1267,7 @@ func (s *ArchiveSuite) TestGetPromulgatedURL(c *gc.C) {
 		ACLs: mongodoc.ACL{
 			Read: []string{"everyone", "tom"},
 		},
-		Promulgated: 1,
+		Promulgated: mongodoc.True,
 	})
 	c.Assert(err, gc.IsNil)
 	err = s.store.DB.Entities().Insert(&mongodoc.Entity{

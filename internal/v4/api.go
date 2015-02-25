@@ -139,11 +139,7 @@ func ResolveURL(store *charmstore.Store, url *charm.Reference) error {
 		return noMatchingURLError(url)
 	}
 	url.Series = entity.URL.Series
-	if url.User == "" {
-		url.Revision = entity.PromulgatedURL.Revision
-	} else {
-		url.Revision = entity.URL.Revision
-	}
+	url.Revision = entity.PreferredURL(url.User == "").Revision
 	return nil
 }
 
@@ -348,7 +344,7 @@ func (h *Handler) serveExpandId(id *charm.Reference, _ bool, w http.ResponseWrit
 	id.Series = ""
 
 	// Retrieve all the entities with the same base URL.
-	q := h.store.QueryEntity(id).Select(bson.D{{"_id", 1}, {"promulgated-url", 1}})
+	q := h.store.EntitiesQuery(id).Select(bson.D{{"_id", 1}, {"promulgated-url", 1}})
 	if id.User == "" {
 		q = q.Sort("-series", "-promulgated-revision")
 	} else {
@@ -370,12 +366,7 @@ func (h *Handler) serveExpandId(id *charm.Reference, _ bool, w http.ResponseWrit
 	// Collect all the expanded identifiers for each entity.
 	response := make([]params.ExpandedId, 0, len(docs))
 	for _, doc := range docs {
-		var url *charm.Reference
-		if id.User == "" {
-			url = doc.PromulgatedURL
-		} else {
-			url = doc.URL
-		}
+		url := doc.PreferredURL(id.User == "")
 		response = append(response, params.ExpandedId{Id: url.String()})
 	}
 
@@ -550,7 +541,7 @@ func (h *Handler) metaRevisionInfo(id *charm.Reference, path string, flags url.V
 	searchURL := *id
 	searchURL.Revision = -1
 
-	q := h.store.QueryEntity(&searchURL)
+	q := h.store.EntitiesQuery(&searchURL)
 	if id.User == "" {
 		q = q.Sort("-promulgated-revision")
 	} else {

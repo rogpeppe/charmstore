@@ -74,7 +74,6 @@ import (
 
 	"gopkg.in/errgo.v1"
 	"gopkg.in/juju/charm.v4"
-	"gopkg.in/mgo.v2"
 
 	"github.com/juju/charmstore/internal/charmstore"
 	"github.com/juju/charmstore/internal/mongodoc"
@@ -175,11 +174,7 @@ func (h *Handler) serveCharmInfo(_ http.Header, req *http.Request) (interface{},
 		}
 		// Prepare the response part for this charm.
 		if err == nil {
-			if curl.User == "" {
-				curl = entity.PromulgatedURL
-			} else {
-				curl = entity.URL
-			}
+			curl = entity.PreferredURL(curl.User == "")
 			c.CanonicalURL = curl.String()
 			c.Revision = curl.Revision
 			c.Sha256 = entity.BlobHash256

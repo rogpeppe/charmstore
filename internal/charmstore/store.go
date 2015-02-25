@@ -136,6 +136,9 @@ func (s *Store) putArchive(archive blobstore.ReadSeekCloser) (blobName, blobHash
 // also adds the charm archive to the blob store.
 // This method is provided principally so that
 // tests can easily create content in the store.
+//
+// If purl is not nil then the charm will also be
+// available at the promulgated url specified.
 func (s *Store) AddCharmWithArchive(url, purl *charm.Reference, ch charm.Charm) error {
 	blobName, blobHash, blobHash256, blobSize, err := s.uploadCharmOrBundle(ch)
 	if err != nil {
@@ -160,6 +163,9 @@ func (s *Store) AddCharmWithArchive(url, purl *charm.Reference, ch charm.Charm) 
 // also adds the charm archive to the blob store.
 // This method is provided principally so that
 // tests can easily create content in the store.
+//
+// If purl is not nil then the bundle will also be
+// available at the promulgated url specified.
 func (s *Store) AddBundleWithArchive(url, purl *charm.Reference, b charm.Bundle) error {
 	blobName, blobHash, blobHash256, size, err := s.uploadCharmOrBundle(b)
 	if err != nil {
@@ -274,9 +280,9 @@ func (s *Store) insertEntity(entity *mongodoc.Entity) (err error) {
 		readPerm = []string{params.Everyone, entity.User}
 		writePerm = []string{entity.User}
 	}
-	promulgated := 0
+	promulgated := mongodoc.False
 	if entity.PromulgatedURL != nil {
-		promulgated = 1
+		promulgated = mongodoc.True
 	}
 	// Add the base entity to the database.
 	baseEntity := &mongodoc.BaseEntity{
@@ -324,6 +330,8 @@ func (s *Store) insertEntity(entity *mongodoc.Entity) (err error) {
 // FindEntity finds the entity in the store with the given URL,
 // which must be fully qualified. If any fields are specified,
 // only those fields will be populated in the returned entities.
+// If the given URL has no user then it is assumed to be a
+// promulgated entity.
 func (s *Store) FindEntity(url *charm.Reference, fields ...string) (*mongodoc.Entity, error) {
 	if url.Series == "" || url.Revision == -1 {
 		return nil, errgo.Newf("entity id %q is not fully qualified", url)
@@ -342,9 +350,10 @@ func (s *Store) FindEntity(url *charm.Reference, fields ...string) (*mongodoc.En
 
 // FindEntities finds all entities in the store matching the given URL.
 // If any fields are specified, only those fields will be
-// populated in the returned entities.
+// populated in the returned entities. If the given URL has no user then
+// only promulgated entities will be queried.
 func (s *Store) FindEntities(url *charm.Reference, fields ...string) ([]*mongodoc.Entity, error) {
-	query := selectFields(s.QueryEntity(url), fields)
+	query := selectFields(s.EntitiesQuery(url), fields)
 	var docs []*mongodoc.Entity
 	err := query.All(&docs)
 	if err != nil {
@@ -353,9 +362,10 @@ func (s *Store) FindEntities(url *charm.Reference, fields ...string) ([]*mongodo
 	return docs, nil
 }
 
-//FindBestEntity finds the entity that provides the preferred match to
-//the given URL. If any fields are specified, only those fields will be
-//populated in the returned entities.
+// FindBestEntity finds the entity that provides the preferred match to
+// the given URL. If any fields are specified, only those fields will be
+// populated in the returned entities. If the given URL has no user then
+// only promulgated entities will be queried.
 func (s *Store) FindBestEntity(url *charm.Reference, fields ...string) (*mongodoc.Entity, error) {
 	if len(fields) > 0 {
 		// make sure we have all the fields we need to make a decision
@@ -403,16 +413,18 @@ var seriesScore = map[string]int{
 	"utopic":  4,
 }
 
-//QueryEntity creates a mgo.Query object that can be used to get
-//entities matching the given URL.
-func (s *Store) QueryEntity(url *charm.Reference) *mgo.Query {
+// EntitiesQuery creates a mgo.Query object that can be used to get
+// entities matching the given URL. If the given URL has no user then
+// the produced query will only match promulgated entities.
+func (s *Store) EntitiesQuery(url *charm.Reference) *mgo.Query {
 	if url.User != "" && url.Series != "" && url.Revision != -1 {
 		return s.DB.Entities().FindId(url)
 	}
 	if url.Series != "" && url.Revision != -1 {
 		return s.DB.Entities().Find(bson.D{{"promulgated-url", url}})
 	}
-	q := bson.D{{"name", url.Name}}
+	q := make(bson.D, 0, 3)
+	q = append(q, bson.DocElem{"name", url.Name})
 	if url.User != "" {
 		q = append(q, bson.DocElem{"user", url.User})
 	} else {
@@ -428,7 +440,6 @@ func (s *Store) QueryEntity(url *charm.Reference) *mgo.Query {
 			q = append(q, bson.DocElem{"promulgated-revision", url.Revision})
 		}
 	}
-	logger.Debugf("query: %s", q)
 	return s.DB.Entities().Find(q)
 }
 
@@ -468,7 +479,7 @@ func selectFields(query *mgo.Query, fields []string) *mgo.Query {
 	return query
 }
 
-//UpdateEntity applies the provided update to the entity described by url.
+// UpdateEntity applies the provided update to the entity described by url.
 func (s *Store) UpdateEntity(url *charm.Reference, update interface{}) error {
 	var q bson.D
 	if url.User == "" {

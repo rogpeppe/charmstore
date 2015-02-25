@@ -135,12 +135,8 @@ func (h *Handler) getRelatedIfaceResponses(
 					return nil, err
 				}
 				// Build the response.
-				url := entity.URL
-				if entity.PromulgatedURL != nil {
-					url = entity.PromulgatedURL
-				}
 				responses = append(responses, params.MetaAnyResponse{
-					Id:   url,
+					Id:   entity.PreferredURL(true),
 					Meta: meta,
 				})
 			}
@@ -227,12 +223,8 @@ func (h *Handler) metaBundlesContaining(entity *mongodoc.Entity, id *charm.Refer
 		if err != nil {
 			return nil, errgo.Notef(err, "cannot retrieve bundle metadata")
 		}
-		url := e.URL
-		if e.PromulgatedURL != nil {
-			url = e.PromulgatedURL
-		}
 		response = append(response, &params.MetaAnyResponse{
-			Id:   url,
+			Id:   e.PreferredURL(true),
 			Meta: meta,
 		})
 	}

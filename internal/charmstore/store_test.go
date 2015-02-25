@@ -217,9 +217,9 @@ func assertBaseEntity(c *gc.C, store *Store, url *charm.Reference, promulgated b
 		expectACLs.Read = append(expectACLs.Read, url.User)
 		expectACLs.Write = append(expectACLs.Write, url.User)
 	}
-	p := 0
+	p := mongodoc.False
 	if promulgated {
-		p = 1
+		p = mongodoc.True
 	}
 	c.Assert(baseEntity, jc.DeepEquals, &mongodoc.BaseEntity{
 		URL:         url,
@@ -416,7 +416,7 @@ var findBaseEntityTests = []struct {
 		User:        "charmers",
 		Name:        "django",
 		Public:      true,
-		Promulgated: 1,
+		Promulgated: mongodoc.True,
 		ACLs: mongodoc.ACL{
 			Read:  []string{"everyone", "charmers"},
 			Write: []string{"charmers"},
@@ -1705,7 +1705,7 @@ func (s *StoreSuite) TestUpdateBaseEntity(c *gc.C) {
 			URL:         charm.MustParseReference("~charmers/wordpress"),
 			User:        "charmers",
 			Name:        "wordpress",
-			Promulgated: 1,
+			Promulgated: mongodoc.True,
 		})
 		c.Assert(err, gc.IsNil)
 		err = store.UpdateBaseEntity(url, bson.D{{"$set", bson.D{{"acls", mongodoc.ACL{

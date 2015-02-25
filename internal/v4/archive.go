@@ -136,7 +136,8 @@ func (h *Handler) servePostArchive(id *charm.Reference, w http.ResponseWriter, r
 		})
 	}
 
-	// Find the ID for the promulgated version of this charm if it should have one.
+	// Get the promulgated URL for this entity, If the user is not the
+	// promulgated user for this entity then this will be nil.
 	pid, err := h.getPromulgatedURL(id)
 	if err != nil {
 		return errgo.Mask(err)
@@ -174,9 +175,6 @@ func (h *Handler) servePutArchive(id *charm.Reference, w http.ResponseWriter, re
 	}
 	if req.ContentLength == -1 {
 		return badRequestf(nil, "Content-Length not specified")
-	}
-	if err := req.ParseForm(); err != nil {
-		return badRequestf(err, "cannot parse form")
 	}
 	promulgatedURL := req.Form.Get("promulgated")
 	var pid *charm.Reference
@@ -494,10 +492,10 @@ func (h *Handler) getPromulgatedURL(id *charm.Reference) (*charm.Reference, erro
 	if err != nil && errgo.Cause(err) != params.ErrNotFound {
 		return nil, errgo.Mask(err)
 	}
-	if baseEntity == nil || baseEntity.Promulgated == 0 {
+	if baseEntity == nil || !baseEntity.Promulgated {
 		return nil, nil
 	}
-	query := h.store.QueryEntity(&charm.Reference{
+	query := h.store.EntitiesQuery(&charm.Reference{
 		Series:   id.Series,
 		Name:     id.Name,
 		Revision: -1,

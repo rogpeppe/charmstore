@@ -232,27 +232,21 @@ func populatePromulgatedEntities(db StoreDatabase) error {
 	baseEntities := db.BaseEntities()
 	entities := db.Entities()
 
-	// 1. Update All Base Entities to have a promulgated value of the correct form.
+	// 1. Update all base entities to have a promulgated value of the correct form.
 	_, err := baseEntities.UpdateAll(
-		bson.D{{"promulgated", true}},
-		bson.D{{"$set", bson.D{{"promulgated", 1}}}},
-	)
-	if err != nil {
-		return errgo.Notef(err, "cannot set promulgated to initial value")
-	}
-	_, err = baseEntities.UpdateAll(
-		bson.D{{"$or", []interface{}{
-			bson.D{{"promulgated", false}},
-			bson.D{{"promulgated", bson.D{{"$ne", 1}}}},
-			bson.D{{"promulgated", bson.D{{"$exists", false}}}},
-		}}},
+		bson.D{{"promulgated", bson.D{{"$ne", 1}}}},
 		bson.D{{"$set", bson.D{{"promulgated", -1}}}},
 	)
 	if err != nil {
-		return errgo.Notef(err, "cannot set promulgated to initial value")
+		return errgo.Notef(err, "cannot set promulgated to initial false value")
 	}
 
 	// 2. Update entities with users with their promulgated URL.
+	//
+	// Note that we order the query results by revision, so when
+	// we've traversed all the entities, owner[name] will hold the
+	// owner of the latest revision of each promulgated charm with
+	// the given name.
 	owners := make(map[string]string)
 	iter := entities.Find(bson.D{{"user", ""}}).Select(bson.D{
 		{"_id", 1},
@@ -276,13 +270,15 @@ func populatePromulgatedEntities(db StoreDatabase) error {
 				{"name", entity.URL.Name},
 				{"series", entity.URL.Series},
 				{"blobhash", entity.BlobHash},
+				{"promulgated-url", bson.D{{"$exists", false}}},
 			},
 			bson.D{{"$set", bson.D{
 				{"promulgated-url", entity.URL},
 				{"promulgated-revision", entity.URL.Revision},
 			}}},
 		)
-		if err != nil {
+		// Ignore not found errors as these will occur if the update is happening in parallel.
+		if err != nil && err != mgo.ErrNotFound {
 			return errgo.Notef(err, "cannot update entity for promulgated charm or bundle %q", entity.URL)
 		}
 	}
