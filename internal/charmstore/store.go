@@ -71,11 +71,6 @@ func NewStore(db *mgo.Database, si *SearchIndex, bakeryParams *bakery.NewService
 		}
 		s.Bakery = bsvc
 	}
-	go func() {
-		if err := s.syncSearch(); err != nil {
-			logger.Errorf("Cannot populate elasticsearch: %v", err)
-		}
-	}()
 	return s, nil
 }
 
