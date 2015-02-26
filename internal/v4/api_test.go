@@ -1147,7 +1147,7 @@ var resolveURLTests = []struct {
 	url:      "foo",
 	notFound: true,
 }, {
-	url:      "rusty/bigdata",
+	url:      "trusty/bigdata",
 	notFound: true,
 }}
 

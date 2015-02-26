@@ -261,16 +261,11 @@ func (b *IntBool) SetBSON(raw bson.Raw) error {
 	}
 	switch x {
 	case 1:
-		*b = True
+		*b = IntBool(true)
 	case -1:
-		*b = False
+		*b = IntBool(false)
 	default:
-		return errgo.Newf("invalid value %q", x)
+		return errgo.Newf("invalid value %d", x)
 	}
 	return nil
 }
-
-var (
-	True  = IntBool(true)
-	False = IntBool(false)
-)

@@ -136,8 +136,8 @@ func (h *Handler) servePostArchive(id *charm.Reference, w http.ResponseWriter, r
 		})
 	}
 
-	// Get the promulgated URL for this entity, If the user is not the
-	// promulgated user for this entity then this will be nil.
+	// Find the promulgated URL for the entity. Note: if the entity is not promulgated,
+	// getPromulgatedURL returns nil.
 	pid, err := h.getPromulgatedURL(id)
 	if err != nil {
 		return errgo.Mask(err)
@@ -176,6 +176,10 @@ func (h *Handler) servePutArchive(id *charm.Reference, w http.ResponseWriter, re
 	if req.ContentLength == -1 {
 		return badRequestf(nil, "Content-Length not specified")
 	}
+	// Get the PromulgatedURL from the request parameters. When ingesting
+	// entities might not be added in order and the promulgated revision might
+	// not match the non-promulgated revision, so the full promulgated URL
+	// needs to be specified.
 	promulgatedURL := req.Form.Get("promulgated")
 	var pid *charm.Reference
 	if promulgatedURL != "" {
@@ -185,6 +189,9 @@ func (h *Handler) servePutArchive(id *charm.Reference, w http.ResponseWriter, re
 		}
 		if pid.User != "" {
 			return badRequestf(nil, "promulgated URL cannot have a user")
+		}
+		if pid.Name != id.Name {
+			return badRequestf(nil, "promulgated URL has incorrect charm name")
 		}
 	}
 	if err := h.addBlobAndEntity(id, pid, req.Body, hash, req.ContentLength); err != nil {
@@ -500,7 +507,6 @@ func (h *Handler) getPromulgatedURL(id *charm.Reference) (*charm.Reference, erro
 		Name:     id.Name,
 		Revision: -1,
 	})
-	logger.Debugf("%v", query)
 	var entity mongodoc.Entity
 	err = query.Sort("-promulgated-revision").Select(bson.D{{"promulgated-revision", 1}}).One(&entity)
 	promulgatedURL := *id

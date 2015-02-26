@@ -280,10 +280,6 @@ func (s *Store) insertEntity(entity *mongodoc.Entity) (err error) {
 		readPerm = []string{params.Everyone, entity.User}
 		writePerm = []string{entity.User}
 	}
-	promulgated := mongodoc.False
-	if entity.PromulgatedURL != nil {
-		promulgated = mongodoc.True
-	}
 	// Add the base entity to the database.
 	baseEntity := &mongodoc.BaseEntity{
 		URL:  entity.BaseURL,
@@ -295,7 +291,7 @@ func (s *Store) insertEntity(entity *mongodoc.Entity) (err error) {
 			Read:  readPerm,
 			Write: writePerm,
 		},
-		Promulgated: promulgated,
+		Promulgated: entity.PromulgatedURL != nil,
 	}
 	err = s.DB.BaseEntities().Insert(baseEntity)
 	if err != nil && !mgo.IsDup(err) {
@@ -368,7 +364,7 @@ func (s *Store) FindEntities(url *charm.Reference, fields ...string) ([]*mongodo
 // only promulgated entities will be queried.
 func (s *Store) FindBestEntity(url *charm.Reference, fields ...string) (*mongodoc.Entity, error) {
 	if len(fields) > 0 {
-		// make sure we have all the fields we need to make a decision
+		// Make sure we have all the fields we need to make a decision.
 		fields = append(fields, "_id", "promulgated-url", "promulgated-revision", "series", "revision")
 	}
 	entities, err := s.FindEntities(url, fields...)
@@ -413,21 +409,25 @@ var seriesScore = map[string]int{
 	"utopic":  4,
 }
 
-// EntitiesQuery creates a mgo.Query object that can be used to get
+// EntitiesQuery creates a mgo.Query object that can be used to find
 // entities matching the given URL. If the given URL has no user then
 // the produced query will only match promulgated entities.
 func (s *Store) EntitiesQuery(url *charm.Reference) *mgo.Query {
 	if url.User != "" && url.Series != "" && url.Revision != -1 {
+		// Find a specific owned entity, for instance ~who/utopic/django-42.
 		return s.DB.Entities().FindId(url)
 	}
 	if url.Series != "" && url.Revision != -1 {
+		// Find a specific promulgated entity, for instance utopic/django-42.
 		return s.DB.Entities().Find(bson.D{{"promulgated-url", url}})
 	}
+	// Find all entities matching the URL.
 	q := make(bson.D, 0, 3)
 	q = append(q, bson.DocElem{"name", url.Name})
 	if url.User != "" {
 		q = append(q, bson.DocElem{"user", url.User})
 	} else {
+		// If the URL user is empty, only search the promulgated entities.
 		q = append(q, bson.DocElem{"promulgated-url", bson.D{{"$exists", true}}})
 	}
 	if url.Series != "" {
@@ -452,10 +452,7 @@ func (s *Store) FindBaseEntity(url *charm.Reference, fields ...string) (*mongodo
 	if url.User == "" {
 		query = s.DB.BaseEntities().Find(bson.D{{"name", url.Name}, {"promulgated", 1}})
 	} else {
-		baseId := *url
-		baseId.Series = ""
-		baseId.Revision = -1
-		query = s.DB.BaseEntities().FindId(&baseId)
+		query = s.DB.BaseEntities().FindId(baseURL(url))
 	}
 	query = selectFields(query, fields)
 	var baseEntity mongodoc.BaseEntity
@@ -502,10 +499,7 @@ func (s *Store) UpdateBaseEntity(url *charm.Reference, update interface{}) error
 	if url.User == "" {
 		q = bson.D{{"name", url.Name}, {"promulgated", 1}}
 	} else {
-		baseId := *url
-		baseId.Series = ""
-		baseId.Revision = -1
-		q = bson.D{{"_id", baseId.String()}}
+		q = bson.D{{"_id", baseURL(url)}}
 	}
 	if err := s.DB.BaseEntities().Update(q, update); err != nil {
 		if err == mgo.ErrNotFound {

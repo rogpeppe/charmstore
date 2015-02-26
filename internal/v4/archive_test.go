@@ -364,36 +364,66 @@ func (s *ArchiveSuite) TestPutCharm(c *gc.C) {
 		c,
 		"PUT",
 		charm.MustParseReference("~charmers/precise/wordpress-1"),
-		charm.MustParseReference("precise/wordpress-1"),
+		nil,
 		"wordpress",
 	)
 
 	// Check that we get a duplicate-upload error if we try to
 	// upload to the same revision again.
-	path := storetesting.Charms.CharmArchivePath(c.MkDir(), "mysql")
-	f, err := os.Open(path)
-	c.Assert(err, gc.IsNil)
-	defer f.Close()
-	hash, size := hashOf(f)
-	_, err = f.Seek(0, 0)
-	c.Assert(err, gc.IsNil)
-	httptesting.AssertJSONCall(c, httptesting.JSONCallParams{
-		Handler:       s.srv,
-		URL:           storeURL("~charmers/precise/wordpress-3/archive?hash=" + hash),
-		Method:        "PUT",
-		ContentLength: size,
-		Header: http.Header{
-			"Content-Type": {"application/zip"},
-		},
-		Body:         f,
-		Username:     serverParams.AuthUsername,
-		Password:     serverParams.AuthPassword,
-		ExpectStatus: http.StatusInternalServerError,
-		ExpectBody: params.Error{
+	s.assertUploadCharmError(
+		c,
+		"PUT",
+		charm.MustParseReference("~charmers/precise/wordpress-3"),
+		nil,
+		"mysql",
+		http.StatusInternalServerError,
+		params.Error{
 			Message: "duplicate upload",
 			Code:    params.ErrDuplicateUpload,
 		},
-	})
+	)
+
+	// Check we get an error if promulgated url already uploaded.
+	s.assertUploadCharmError(
+		c,
+		"PUT",
+		charm.MustParseReference("~charmers/precise/wordpress-4"),
+		charm.MustParseReference("precise/wordpress-3"),
+		"wordpress",
+		http.StatusInternalServerError,
+		params.Error{
+			Message: "duplicate upload",
+			Code:    params.ErrDuplicateUpload,
+		},
+	)
+
+	// Check we get an error if promulgated url has user.
+	s.assertUploadCharmError(
+		c,
+		"PUT",
+		charm.MustParseReference("~charmers/precise/wordpress-4"),
+		charm.MustParseReference("~charmers/precise/wordpress-4"),
+		"mysql",
+		http.StatusBadRequest,
+		params.Error{
+			Message: "promulgated URL cannot have a user",
+			Code:    params.ErrBadRequest,
+		},
+	)
+
+	// Check we get an error if promulgated url has different name.
+	s.assertUploadCharmError(
+		c,
+		"PUT",
+		charm.MustParseReference("~charmers/precise/wordpress-4"),
+		charm.MustParseReference("precise/mysql-4"),
+		"mysql",
+		http.StatusBadRequest,
+		params.Error{
+			Message: "promulgated URL has incorrect charm name",
+			Code:    params.ErrBadRequest,
+		},
+	)
 }
 
 func (s *ArchiveSuite) TestPostBundle(c *gc.C) {
@@ -701,7 +731,7 @@ func (s *ArchiveSuite) assertUpload(c *gc.C, method string, url, purl *charm.Ref
 
 	path := fmt.Sprintf("%s/archive?hash=%s", strings.TrimPrefix(uploadURL.String(), "cs:"), hashSum)
 	if purl != nil {
-		path += fmt.Sprintf("&%s", purl.String())
+		path += fmt.Sprintf("&promulgated=%s", purl.String())
 	}
 	httptesting.AssertJSONCall(c, httptesting.JSONCallParams{
 		Handler:       s.srv,
@@ -730,6 +760,64 @@ func (s *ArchiveSuite) assertUpload(c *gc.C, method string, url, purl *charm.Ref
 	c.Assert(err, gc.IsNil)
 	r.Close()
 	return size
+}
+
+// assertUploadCharmError attempts to upload the testing charm with the
+// given name through the API, checking that the attempt fails with the
+// specified error. The URL must hold the expected revision that the
+// charm will be given when uploaded.
+func (s *ArchiveSuite) assertUploadCharmError(c *gc.C, method string, url, purl *charm.Reference, charmName string, expectStatus int, expectBody interface{}) {
+	ch := storetesting.Charms.CharmArchive(c.MkDir(), charmName)
+	s.assertUploadError(c, method, url, purl, ch.Path, expectStatus, expectBody)
+}
+
+//  assertUploadBundleError attempts to upload the testing bundle with the
+//  given name through the API, checking that the attempt fails with the
+//  specified error. The URL must hold the expected revision that the
+//  charm will be given when uploaded.
+func (s *ArchiveSuite) assertUploadBundleError(c *gc.C, method string, url, purl *charm.Reference, bundleName string, expectStatus int, expectBody interface{}) {
+	path := storetesting.Charms.BundleArchivePath(c.MkDir(), bundleName)
+	b, err := charm.ReadBundleArchive(path)
+	c.Assert(err, gc.IsNil)
+	s.assertUploadError(c, method, url, purl, b.Path, expectStatus, expectBody)
+}
+
+func (s *ArchiveSuite) assertUploadError(c *gc.C, method string, url, purl *charm.Reference, fileName string, expectStatus int, expectBody interface{}) {
+	f, err := os.Open(fileName)
+	c.Assert(err, gc.IsNil)
+	defer f.Close()
+
+	// Calculate blob hashes.
+	hash := blobstore.NewHash()
+	size, err := io.Copy(hash, f)
+	c.Assert(err, gc.IsNil)
+	hashSum := fmt.Sprintf("%x", hash.Sum(nil))
+	_, err = f.Seek(0, 0)
+	c.Assert(err, gc.IsNil)
+
+	uploadURL := *url
+	if method == "POST" {
+		uploadURL.Revision = -1
+	}
+
+	path := fmt.Sprintf("%s/archive?hash=%s", strings.TrimPrefix(uploadURL.String(), "cs:"), hashSum)
+	if purl != nil {
+		path += fmt.Sprintf("&promulgated=%s", purl.String())
+	}
+	httptesting.AssertJSONCall(c, httptesting.JSONCallParams{
+		Handler:       s.srv,
+		URL:           storeURL(path),
+		Method:        method,
+		ContentLength: size,
+		Header: http.Header{
+			"Content-Type": {"application/zip"},
+		},
+		Body:         f,
+		Username:     serverParams.AuthUsername,
+		Password:     serverParams.AuthPassword,
+		ExpectStatus: expectStatus,
+		ExpectBody:   expectBody,
+	})
 }
 
 var archiveFileErrorsTests = []struct {
@@ -1212,7 +1300,7 @@ func (s *ArchiveSuite) TestGetPromulgatedURL(c *gc.C) {
 		ACLs: mongodoc.ACL{
 			Read: []string{"everyone", "dduck"},
 		},
-		Promulgated: mongodoc.False,
+		Promulgated: false,
 	})
 	c.Assert(err, gc.IsNil)
 	err = s.store.DB.BaseEntities().Insert(&mongodoc.BaseEntity{
@@ -1223,7 +1311,7 @@ func (s *ArchiveSuite) TestGetPromulgatedURL(c *gc.C) {
 		ACLs: mongodoc.ACL{
 			Read: []string{"everyone", "goofy"},
 		},
-		Promulgated: mongodoc.True,
+		Promulgated: true,
 	})
 	c.Assert(err, gc.IsNil)
 	err = s.store.DB.BaseEntities().Insert(&mongodoc.BaseEntity{
@@ -1234,7 +1322,7 @@ func (s *ArchiveSuite) TestGetPromulgatedURL(c *gc.C) {
 		ACLs: mongodoc.ACL{
 			Read: []string{"everyone", "pluto"},
 		},
-		Promulgated: mongodoc.True,
+		Promulgated: true,
 	})
 	c.Assert(err, gc.IsNil)
 	err = s.store.DB.BaseEntities().Insert(&mongodoc.BaseEntity{
@@ -1245,7 +1333,7 @@ func (s *ArchiveSuite) TestGetPromulgatedURL(c *gc.C) {
 		ACLs: mongodoc.ACL{
 			Read: []string{"everyone", "tom"},
 		},
-		Promulgated: mongodoc.True,
+		Promulgated: true,
 	})
 	c.Assert(err, gc.IsNil)
 	err = s.store.DB.BaseEntities().Insert(&mongodoc.BaseEntity{
@@ -1256,7 +1344,7 @@ func (s *ArchiveSuite) TestGetPromulgatedURL(c *gc.C) {
 		ACLs: mongodoc.ACL{
 			Read: []string{"everyone", "jerry"},
 		},
-		Promulgated: mongodoc.False,
+		Promulgated: false,
 	})
 	c.Assert(err, gc.IsNil)
 	err = s.store.DB.BaseEntities().Insert(&mongodoc.BaseEntity{
@@ -1267,7 +1355,7 @@ func (s *ArchiveSuite) TestGetPromulgatedURL(c *gc.C) {
 		ACLs: mongodoc.ACL{
 			Read: []string{"everyone", "tom"},
 		},
-		Promulgated: mongodoc.True,
+		Promulgated: true,
 	})
 	c.Assert(err, gc.IsNil)
 	err = s.store.DB.Entities().Insert(&mongodoc.Entity{

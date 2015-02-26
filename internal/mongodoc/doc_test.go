@@ -6,6 +6,7 @@ package mongodoc_test
 import (
 	"testing"
 
+	jc "github.com/juju/testing/checkers"
 	gc "gopkg.in/check.v1"
 	"gopkg.in/juju/charm.v4"
 	"gopkg.in/mgo.v2/bson"
@@ -22,7 +23,7 @@ type DocSuite struct{}
 var _ = gc.Suite(&DocSuite{})
 
 func (s *DocSuite) TestIntBoolGetBSON(c *gc.C) {
-	test := bson.D{{"true", mongodoc.True}, {"false", mongodoc.False}}
+	test := bson.D{{"true", mongodoc.IntBool(true)}, {"false", mongodoc.IntBool(false)}}
 	b, err := bson.Marshal(test)
 	c.Assert(err, gc.IsNil)
 	result := make(map[string]int, 2)
@@ -36,18 +37,17 @@ func (s *DocSuite) TestIntBoolSetBSON(c *gc.C) {
 	test := bson.D{{"true", 1}, {"false", -1}}
 	b, err := bson.Marshal(test)
 	c.Assert(err, gc.IsNil)
-	result := make(map[string]mongodoc.IntBool, 2)
+	var result map[string]mongodoc.IntBool
 	err = bson.Unmarshal(b, &result)
 	c.Assert(err, gc.IsNil)
-	c.Assert(result["true"], gc.Equals, mongodoc.True)
-	c.Assert(result["false"], gc.Equals, mongodoc.False)
+	c.Assert(result, jc.DeepEquals, map[string]mongodoc.IntBool{"true": true, "false": false})
 }
 
 func (s *DocSuite) TestIntBoolSetBSONIncorrectType(c *gc.C) {
 	test := bson.D{{"test", "true"}}
 	b, err := bson.Marshal(test)
 	c.Assert(err, gc.IsNil)
-	result := make(map[string]mongodoc.IntBool, 1)
+	var result map[string]mongodoc.IntBool
 	err = bson.Unmarshal(b, &result)
 	c.Assert(err, gc.ErrorMatches, "cannot unmarshal value: BSON kind 0x02 isn't compatible with type int")
 }
@@ -56,9 +56,9 @@ func (s *DocSuite) TestIntBoolSetBSONInvalidValue(c *gc.C) {
 	test := bson.D{{"test", 2}}
 	b, err := bson.Marshal(test)
 	c.Assert(err, gc.IsNil)
-	result := make(map[string]mongodoc.IntBool, 1)
+	var result map[string]mongodoc.IntBool
 	err = bson.Unmarshal(b, &result)
-	c.Assert(err, gc.ErrorMatches, `invalid value '\\x02'`)
+	c.Assert(err, gc.ErrorMatches, `invalid value 2`)
 }
 
 func (s *DocSuite) TestPreferredURL(c *gc.C) {

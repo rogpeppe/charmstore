@@ -281,14 +281,7 @@ func (h *Handler) baseEntityQuery(id *charm.Reference, selector map[string]int, 
 }
 
 func (h *Handler) entityQuery(id *charm.Reference, selector map[string]int, req *http.Request) (interface{}, error) {
-	fields := make([]string, 0, len(selector))
-	for k, v := range selector {
-		if v == 0 {
-			continue
-		}
-		fields = append(fields, k)
-	}
-	val, err := h.store.FindBestEntity(id, fields...)
+	val, err := h.store.FindBestEntity(id, fieldsFromSelector(selector)...)
 	if errgo.Cause(err) == params.ErrNotFound {
 		return nil, errgo.WithCausef(nil, params.ErrNotFound, "no matching charm or bundle for %s", id)
 	}
@@ -302,6 +295,17 @@ var ltsReleases = map[string]bool{
 	"lucid":   true,
 	"precise": true,
 	"trusty":  true,
+}
+
+func fieldsFromSelector(selector map[string]int) []string {
+	fields := make([]string, 0, len(selector))
+	for k, v := range selector {
+		if v == 0 {
+			continue
+		}
+		fields = append(fields, k)
+	}
+	return fields
 }
 
 // parseBool returns the boolean value represented by the string.
