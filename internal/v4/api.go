@@ -23,6 +23,7 @@ import (
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 
+	"gopkg.in/juju/charmstore.v5-unstable/audit"
 	"gopkg.in/juju/charmstore.v5-unstable/internal/agent"
 	"gopkg.in/juju/charmstore.v5-unstable/internal/cache"
 	"gopkg.in/juju/charmstore.v5-unstable/internal/charmstore"
@@ -787,11 +788,31 @@ func (h *ReqHandler) putMetaPerm(id *router.ResolvedURL, path string, val *json.
 			break
 		}
 	}
+
 	updater.UpdateField("acls.read", perms.Read)
 	updater.UpdateField("public", isPublic)
 	updater.UpdateField("acls.write", perms.Write)
+
+	// This is currently wrong as the updater will fire later and might fail.
+	// TODO: Associate the audit entry with the FieldUpdater
+	h.addAuditSetPerms(id, perms.Read, perms.Write)
+
 	updater.UpdateSearch()
 	return nil
+}
+
+// addAuditSetPerms adds an audit entry recording that the permissions of the given
+// entity have been set to the given ACLs.
+func (h *ReqHandler) addAuditSetPerms(id *router.ResolvedURL, read, write []string) {
+	h.Store.AddAudit(audit.Entry{
+		Op:     audit.OpSetPerm,
+		Entity: &id.URL,
+		ACL: &audit.ACL{
+			Read:  read,
+			Write: write,
+		},
+		User: h.auth.Username,
+	})
 }
 
 // GET id/meta/promulgated
@@ -832,10 +853,12 @@ func (h *ReqHandler) putMetaPermWithKey(id *router.ResolvedURL, path string, val
 	case "/read":
 		updater.UpdateField("acls.read", perms)
 		updater.UpdateField("public", isPublic)
+		h.addAuditSetPerms(id, perms, nil)
 		updater.UpdateSearch()
 		return nil
 	case "/write":
 		updater.UpdateField("acls.write", perms)
+		h.addAuditSetPerms(id, nil, perms)
 		return nil
 	}
 	return errgo.WithCausef(nil, params.ErrNotFound, "unknown permission")

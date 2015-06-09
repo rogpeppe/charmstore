@@ -21,10 +21,12 @@ import (
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 
+	"gopkg.in/juju/charmstore.v5-unstable/audit"
 	"gopkg.in/juju/charmstore.v5-unstable/internal/blobstore"
 	"gopkg.in/juju/charmstore.v5-unstable/internal/cache"
 	"gopkg.in/juju/charmstore.v5-unstable/internal/mongodoc"
 	"gopkg.in/juju/charmstore.v5-unstable/internal/router"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 var logger = loggo.GetLogger("charmstore.internal.charmstore")
@@ -51,6 +53,10 @@ type Pool struct {
 	statsCache *cache.Cache
 
 	config ServerParams
+
+	// auditEncoder encodes messages to auditLogger.
+	auditEncoder *json.Encoder
+	auditLogger  *lumberjack.Logger
 
 	// reqStoreC is a buffered channel that contains allocated
 	// stores that are not currently in use.
@@ -83,11 +89,13 @@ func NewPool(db *mgo.Database, si *SearchIndex, bakeryParams *bakery.NewServiceP
 	if maxAge == 0 {
 		maxAge = time.Hour
 	}
+
 	p := &Pool{
 		db:         StoreDatabase{db}.copy(),
 		es:         si,
 		statsCache: cache.New(maxAge),
 		config:     config,
+		auditLogger: config.Audit,
 	}
 	if config.MaxMgoSessions > 0 {
 		p.reqStoreC = make(chan *Store, config.MaxMgoSessions)
@@ -113,6 +121,12 @@ func NewPool(db *mgo.Database, si *SearchIndex, bakeryParams *bakery.NewServiceP
 		}
 		p.bakeryParams = &bp
 	}
+
+	if config.Audit != nil {
+		p.auditLogger = config.Audit
+		p.auditEncoder = json.NewEncoder(p.auditLogger)
+	}
+
 	store := p.Store()
 	defer store.Close()
 	if err := store.ensureIndexes(); err != nil {
@@ -146,6 +160,8 @@ func (p *Pool) Close() {
 			return
 		}
 	}
+
+	p.auditLogger.Close()
 }
 
 // RequestStore returns a store for a client request. It returns
@@ -438,6 +454,22 @@ func (s *Store) uploadCharmOrBundle(c interface{}) (blobName, blobHash, blobHash
 	}
 	defer archive.Close()
 	return s.putArchive(archive)
+}
+
+// AddAudit adds the given entry to the audit log.
+func (s *Store) AddAudit(entry audit.Entry) {
+	s.addAuditAtTime(entry, time.Now())
+}
+
+func (s *Store) addAuditAtTime(entry audit.Entry, now time.Time) {
+	if s.pool.auditEncoder == nil {
+		return
+	}
+	entry.Time = now
+	err := s.pool.auditEncoder.Encode(entry)
+	if err != nil {
+		logger.Errorf("Cannot write audit log entry: %v", err)
+	}
 }
 
 // AddParams holds parameters held in common between the
