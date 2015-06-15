@@ -806,6 +806,9 @@ var testAddAuditCallback func(e audit.Entry)
 // addAuditSetPerms adds an audit entry recording that the permissions of the given
 // entity have been set to the given ACLs.
 func (h *ReqHandler) addAuditSetPerms(id *router.ResolvedURL, read, write []string) {
+	if h.auth.Username == "" && !h.auth.Admin {
+		panic("no auth")
+	}
 	e := audit.Entry{
 		Op:     audit.OpSetPerm,
 		Entity: &id.URL,
@@ -814,6 +817,9 @@ func (h *ReqHandler) addAuditSetPerms(id *router.ResolvedURL, read, write []stri
 			Write: write,
 		},
 		User: h.auth.Username,
+	}
+	if h.auth.Admin && e.User == "" {
+		e.User = "admin"
 	}
 	h.Store.AddAudit(e)
 

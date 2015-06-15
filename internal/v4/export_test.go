@@ -14,7 +14,7 @@ var (
 	ErrProbablyNotXML              = errProbablyNotXML
 	UsernameAttr                   = usernameAttr
 	DelegatableMacaroonExpiry      = delegatableMacaroonExpiry
-	TestAddAuditCallback           = testAddAuditCallback
+	TestAddAuditCallback           = &testAddAuditCallback
 
 	BundleCharms              = (*ReqHandler).bundleCharms
 	GetNewPromulgatedRevision = (*ReqHandler).getNewPromulgatedRevision
