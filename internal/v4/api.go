@@ -801,10 +801,12 @@ func (h *ReqHandler) putMetaPerm(id *router.ResolvedURL, path string, val *json.
 	return nil
 }
 
+var testAddAuditCallback func(e audit.Entry)
+
 // addAuditSetPerms adds an audit entry recording that the permissions of the given
 // entity have been set to the given ACLs.
 func (h *ReqHandler) addAuditSetPerms(id *router.ResolvedURL, read, write []string) {
-	h.Store.AddAudit(audit.Entry{
+	e := audit.Entry{
 		Op:     audit.OpSetPerm,
 		Entity: &id.URL,
 		ACL: &audit.ACL{
@@ -812,7 +814,12 @@ func (h *ReqHandler) addAuditSetPerms(id *router.ResolvedURL, read, write []stri
 			Write: write,
 		},
 		User: h.auth.Username,
-	})
+	}
+	h.Store.AddAudit(e)
+
+	if testAddAuditCallback != nil {
+		testAddAuditCallback(e)
+	}
 }
 
 // GET id/meta/promulgated

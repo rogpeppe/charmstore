@@ -91,10 +91,10 @@ func NewPool(db *mgo.Database, si *SearchIndex, bakeryParams *bakery.NewServiceP
 	}
 
 	p := &Pool{
-		db:         StoreDatabase{db}.copy(),
-		es:         si,
-		statsCache: cache.New(maxAge),
-		config:     config,
+		db:          StoreDatabase{db}.copy(),
+		es:          si,
+		statsCache:  cache.New(maxAge),
+		config:      config,
 		auditLogger: config.Audit,
 	}
 	if config.MaxMgoSessions > 0 {

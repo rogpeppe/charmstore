@@ -27,13 +27,13 @@ import (
 	"gopkg.in/juju/charmrepo.v0/csclient/params"
 	"gopkg.in/mgo.v2/bson"
 
+	"gopkg.in/juju/charmstore.v5-unstable/audit"
 	"gopkg.in/juju/charmstore.v5-unstable/internal/blobstore"
 	"gopkg.in/juju/charmstore.v5-unstable/internal/elasticsearch"
 	"gopkg.in/juju/charmstore.v5-unstable/internal/mongodoc"
 	"gopkg.in/juju/charmstore.v5-unstable/internal/router"
 	"gopkg.in/juju/charmstore.v5-unstable/internal/storetesting"
 	"gopkg.in/natefinch/lumberjack.v2"
-	"gopkg.in/juju/charmstore.v5-unstable/audit"
 )
 
 type StoreSuite struct {
@@ -2266,7 +2266,6 @@ func (s *StoreSuite) TestEntityResolvedURL(c *gc.C) {
 	})
 }
 
-
 func (s *StoreSuite) TestAddAudit(c *gc.C) {
 	filename := filepath.Join(c.MkDir(), "audit.log")
 	config := ServerParams{
@@ -2282,24 +2281,24 @@ func (s *StoreSuite) TestAddAudit(c *gc.C) {
 	store := p.Store()
 	defer store.Close()
 
-	entries := []audit.Entry{ {
-		User: "George Clooney",
-		Op: audit.OpSetPerm,
+	entries := []audit.Entry{{
+		User:   "George Clooney",
+		Op:     audit.OpSetPerm,
 		Entity: charm.MustParseReference("cs:mycharm"),
 		ACL: &audit.ACL{
-			Read: []string{"eleven", "ocean"},
+			Read:  []string{"eleven", "ocean"},
 			Write: []string{"brad", "pitt"},
 		},
 	}, {
 		User: "Julia Roberts",
-		Op: audit.OpSetPerm,
+		Op:   audit.OpSetPerm,
 	}}
 
 	now := time.Now()
 	for _, e := range entries {
 		store.addAuditAtTime(e, now)
 	}
-	data, err:= ioutil.ReadFile(filename)
+	data, err := ioutil.ReadFile(filename)
 	c.Assert(err, gc.IsNil)
 
 	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
@@ -2320,11 +2319,11 @@ func (s *StoreSuite) TestAddAuditWithNoLumberjack(c *gc.C) {
 
 	// Check that it does not panic.
 	store.AddAudit(audit.Entry{
-		User: "George Clooney",
-		Op: audit.OpSetPerm,
+		User:   "George Clooney",
+		Op:     audit.OpSetPerm,
 		Entity: charm.MustParseReference("cs:mycharm"),
 		ACL: &audit.ACL{
-			Read: []string{"eleven", "ocean"},
+			Read:  []string{"eleven", "ocean"},
 			Write: []string{"brad", "pitt"},
 		},
 	})

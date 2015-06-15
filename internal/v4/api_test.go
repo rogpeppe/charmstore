@@ -31,6 +31,7 @@ import (
 	"gopkg.in/macaroon.v1"
 	"gopkg.in/mgo.v2/bson"
 
+	"gopkg.in/juju/charmstore.v5-unstable/audit"
 	"gopkg.in/juju/charmstore.v5-unstable/internal/charmstore"
 	"gopkg.in/juju/charmstore.v5-unstable/internal/elasticsearch"
 	"gopkg.in/juju/charmstore.v5-unstable/internal/mongodoc"
@@ -536,6 +537,24 @@ func (s *APISuite) TestMetaEndpointsSingle(c *gc.C) {
 			c.Errorf("endpoint %q is null for all endpoints, so is not properly tested", ep.name)
 		}
 	}
+}
+
+func (s *APISuite) TestMetaPermAudit(c *gc.C) {
+	called := false
+	v4.TestAddAuditCallback = func(e audit.Entry) {
+		c.Assert(e.Entity.Schema, gc.Equals, "cs")
+		c.Assert(e.Entity.User, gc.Equals, "charmers")
+		c.Assert(e.Entity.Name, gc.Equals, "wordpress")
+		c.Assert(e.Entity.Revision, gc.Equals, 23)
+		c.Assert(e.Entity.Series, gc.Equals, "precise")
+		c.Assert(e.ACL.Read[0], gc.Equals, "bob2")
+		called = true
+	}
+	s.discharge = dischargeForUser("bob")
+	s.addPublicCharm(c, "wordpress", newResolvedURL("~charmers/precise/wordpress-23", 23))
+	s.assertPut(c, "precise/wordpress-23/meta/perm/read", []string{"bob2"})
+	c.Assert(called, gc.Equals, true)
+	v4.TestAddAuditCallback = nil
 }
 
 func (s *APISuite) TestMetaPerm(c *gc.C) {
