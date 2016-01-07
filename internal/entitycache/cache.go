@@ -4,6 +4,7 @@
 package entitycache
 
 import (
+	"log"
 	"sync"
 
 	"gopkg.in/errgo.v1"
@@ -62,17 +63,22 @@ type Cache struct {
 }
 
 var requiredEntityFields = map[string]int{
+	"_id":             1,
 	"promulgated-url": 1,
-	"development": 1,
-	"baseurl": 1,
+	"development":     1,
+	"baseurl":         1,
+}
+
+var requiredBaseEntityFields = map[string]int{
+	"_id": 1,
 }
 
 // New returns a new cache that uses the given store
 // for fetching entities.
 func New(store Store) *Cache {
 	var c Cache
-	c.entities.init(c.getEntity, &c.wg)
-	c.baseEntities.init(c.getBaseEntity, &c.wg)
+	c.entities.init(c.getEntity, &c.wg, requiredEntityFields)
+	c.baseEntities.init(c.getBaseEntity, &c.wg, requiredBaseEntityFields)
 	c.store = store
 	return &c
 }
@@ -233,18 +239,12 @@ type stash struct {
 	err error
 }
 
-// noFields holds no fields (it is never changed).
-// It is used instead of nil so that we avoid passing
-// nil to FindBestEntity, because it has special
-// significance in that context.
-var noFields = make(map[string]int)
-
 // init initializes the stash with the given entity get function.
-func (s *stash) init(get func(id *charm.URL, fields map[string]int) (stashEntity, error), wg *sync.WaitGroup) {
+func (s *stash) init(get func(id *charm.URL, fields map[string]int) (stashEntity, error), wg *sync.WaitGroup, initialFields map[string]int) {
 	s.changed.L = &s.mu
 	s.get = get
 	s.wg = wg
-	s.fields = noFields
+	s.fields = initialFields
 	s.entities = make(map[charm.URL]stashEntity)
 }
 
@@ -340,6 +340,7 @@ func (s *stash) startFetch(id *charm.URL) {
 // fetchAsync is like fetch except that it is expected to be called
 // in a separate goroutine, with s.wg.Add called appropriately
 // beforehand.
+// Called with s.mu unlocked.
 func (s *stash) fetchAsync(url *charm.URL, fields map[string]int, version int) stashEntity {
 	defer s.wg.Done()
 	return s.fetch(url, fields, version)
@@ -709,6 +710,13 @@ type entity struct {
 }
 
 func (e entity) url() *charm.URL {
+	if e.Entity == nil {
+		panic("nil entity")
+	}
+	if e.URL == nil {
+		log.Printf("nil URL in %#v", e.Entity)
+		panic("nil URL")
+	}
 	u := *e.URL
 	if e.Development {
 		u.Channel = charm.DevelopmentChannel
