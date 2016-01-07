@@ -61,6 +61,12 @@ type Cache struct {
 	baseEntities stash
 }
 
+var requiredEntityFields = map[string]int{
+	"promulgated-url": 1,
+	"development": 1,
+	"baseurl": 1,
+}
+
 // New returns a new cache that uses the given store
 // for fetching entities.
 func New(store Store) *Cache {
@@ -692,7 +698,7 @@ func (iter *Iter) send(e *mongodoc.Entity) bool {
 }
 
 // stashEntity represents an entity stored in a stash.
-// It is implemented by both Entity and BaseEntity.
+// It is implemented by the entity and baseEntity types.
 type stashEntity interface {
 	url() *charm.URL
 	promulgatedURL() *charm.URL

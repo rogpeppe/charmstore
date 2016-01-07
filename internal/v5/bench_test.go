@@ -33,7 +33,7 @@ func (s *BenchmarkSuite) BenchmarkMeta(c *gc.C) {
 	s.addPublicCharm(c, "wordpress", newResolvedURL("~charmers/precise/wordpress-23", 23))
 	srv := httptest.NewServer(s.srv)
 	defer srv.Close()
-	url := srv.URL + storeURL("wordpress/meta/archive-size")
+	url := srv.URL + storeURL("~charmers/wordpress/meta/archive-size")
 	for i := 0; i < c.N; i++ {
 		resp, err := http.Get(url)
 		if err != nil {

@@ -104,6 +104,71 @@ func (*suite) TestEntityIssuesBaseEntityQueryConcurrently(c *gc.C) {
 	c.Check(be, gc.Equals, baseEntity)
 }
 
+func (*suite) TestEntityIssuesBaseEntityQuerySequentiallyForPromulgatedURL(c *gc.C) {
+	store := newChanStore()
+	cache := entitycache.New(store)
+	defer cache.Close()
+	cache.AddBaseEntityFields(map[string]int{"url": 1, "name": 1})
+
+	entity := &mongodoc.Entity{
+		URL:      charm.MustParseURL("~bob/wordpress-1"),
+		BaseURL:  charm.MustParseURL("~bob/wordpress"),
+		BlobName: "w1",
+		Size:     99,
+	}
+	baseEntity := &mongodoc.BaseEntity{
+		URL:  charm.MustParseURL("~bob/wordpress"),
+		Name: "wordpress",
+	}
+	queryDone := make(chan struct{})
+	go func() {
+		defer close(queryDone)
+		e, err := cache.Entity(charm.MustParseURL("wordpress"), map[string]int{"url": 1, "baseurl": 1, "blobname": 1})
+		c.Check(err, gc.IsNil)
+		c.Check(e, gc.Equals, entity)
+	}()
+
+	// Acquire both the queries before replying so that we know they've been
+	// issued concurrently.
+	query1 := <-store.entityqc
+	c.Assert(query1.url, jc.DeepEquals, charm.MustParseURL("~bob/wordpress-1"))
+	c.Assert(query1.fields, jc.DeepEquals, map[string]int{
+		"url":      1,
+		"baseurl":  1,
+		"blobname": 1,
+	})
+	query1.reply <- entityReply{
+		entity: entity,
+	}
+	
+	query2 := <-store.baseEntityqc
+	c.Assert(query2.url, jc.DeepEquals, charm.MustParseURL("~bob/wordpress"))
+	c.Assert(query2.fields, jc.DeepEquals, map[string]int{
+		"url":  1,
+		"name": 1,
+	})
+	query1.reply <- entityReply{
+		entity: entity,
+	}
+	query2.reply <- baseEntityReply{
+		entity: baseEntity,
+	}
+	<-queryDone
+
+	// Accessing the same entity again and the base entity should
+	// not call any method on the store, so close the query channels
+	// to ensure it doesn't.
+	close(store.entityqc)
+	close(store.baseEntityqc)
+	e, err := cache.Entity(charm.MustParseURL("~bob/wordpress-1"), map[string]int{"url": 1, "baseurl": 1, "blobname": 1})
+	c.Check(err, gc.IsNil)
+	c.Check(e, gc.Equals, entity)
+
+	be, err := cache.BaseEntity(charm.MustParseURL("~bob/wordpress"), map[string]int{"url": 1, "name": 1})
+	c.Check(err, gc.IsNil)
+	c.Check(be, gc.Equals, baseEntity)
+}
+
 func (*suite) TestFetchWhenFieldsChangeBeforeQueryResult(c *gc.C) {
 	store := newChanStore()
 	cache := entitycache.New(store)
@@ -440,18 +505,14 @@ func (*suite) TestAddEntityFields(c *gc.C) {
 		defer close(queryDone)
 		e, err := cache.Entity(charm.MustParseURL("cs:~bob/wordpress-1"), map[string]int{"blobname": 1})
 		c.Check(err, gc.IsNil)
-		expect := *entity
-		selectFields(&expect, "url", "blobname", "size")
-		c.Check(e, jc.DeepEquals, &expect)
+		c.Check(e, jc.DeepEquals, selectEntityFields(entity, map[string]int{"_id": 1, "blobname": 1, "size": 1}))
 
 		// Adding existing entity fields should have no effect.
 		cache.AddEntityFields(map[string]int{"blobname": 1, "size": 1})
 
 		e, err = cache.Entity(charm.MustParseURL("cs:~bob/wordpress-1"), map[string]int{"size": 1})
 		c.Check(err, gc.IsNil)
-		expect = *entity
-		selectFields(&expect, "url", "blobname", "size")
-		c.Check(e, jc.DeepEquals, &expect)
+		c.Check(e, jc.DeepEquals, selectEntityFields(entity, map[string]int{"_id": 1, "blobname": 1, "size": 1}))
 
 		// Adding a new field should will cause the cache to be invalidated
 		// and a new fetch to take place.
@@ -459,9 +520,7 @@ func (*suite) TestAddEntityFields(c *gc.C) {
 		cache.AddEntityFields(map[string]int{"blobhash": 1})
 		e, err = cache.Entity(charm.MustParseURL("cs:~bob/wordpress-1"), nil)
 		c.Check(err, gc.IsNil)
-		expect = *entity
-		selectFields(&expect, "url", "blobname", "size", "blobhash")
-		c.Check(e, jc.DeepEquals, &expect)
+		c.Check(e, jc.DeepEquals, selectEntityFields(entity, map[string]int{"_id": 1, "blobname": 1, "size": 1, "blobhash": 1}))
 	}()
 
 	query1 := <-store.entityqc
@@ -470,10 +529,8 @@ func (*suite) TestAddEntityFields(c *gc.C) {
 		"blobname": 1,
 		"size":     1,
 	})
-	e := *entity
-	selectFields(&e, "url", "blobname", "size")
 	query1.reply <- entityReply{
-		entity: &e,
+		entity: selectEntityFields(entity, map[string]int{"_id": 1, "blobname": 1, "size": 1}),
 	}
 
 	// When the entity fields are added, we expect another query
@@ -485,10 +542,8 @@ func (*suite) TestAddEntityFields(c *gc.C) {
 		"blobname": 1,
 		"size":     1,
 	})
-	e = *entity
-	selectFields(&e, "url", "blobhash", "blobname", "size")
 	query2.reply <- entityReply{
-		entity: &e,
+		entity: selectEntityFields(entity, map[string]int{"_id": 1, "blobname": 1, "size": 1, "blobhash": 1}),
 	}
 	<-queryDone
 }
@@ -1052,7 +1107,7 @@ type staticStore struct {
 func (s *staticStore) FindBestEntity(url *charm.URL, fields map[string]int) (*mongodoc.Entity, error) {
 	for _, e := range s.entities {
 		if *url == *e.URL {
-			return e, nil
+			return selectEntityFields(e, fields), nil
 		}
 	}
 	return nil, params.ErrNotFound
@@ -1067,21 +1122,44 @@ func (s *staticStore) FindBaseEntity(url *charm.URL, fields map[string]int) (*mo
 	return nil, params.ErrNotFound
 }
 
-// selectFields zeros out all fields in x (which must be a pointer to
-// struct) that are not mentioned in sel.
-func selectFields(x interface{}, fields ...string) {
-	sel := make(map[string]int)
-	for _, f := range fields {
-		sel[f] = 1
-	}
+func selectEntityFields(x *mongodoc.Entity, fields map[string]int) *mongodoc.Entity {
+	return selectFields(x, fields).(*mongodoc.Entity)
+}
+
+func selectBaseEntityFields(x *mongodoc.BaseEntity, fields map[string]int) *mongodoc.BaseEntity {
+	return selectFields(x, fields).(*mongodoc.BaseEntity)
+}
+
+// selectFields returns a copy of x (which must
+// be a pointer to struct) with all fields zeroed
+// except those mentioned in fields.
+func selectFields(x interface{}, fields map[string]int) interface{} {
 	xv := reflect.ValueOf(x).Elem()
 	xt := xv.Type()
+	dv := reflect.New(xt).Elem()
+	dv.Set(xv)
 	for i := 0; i < xt.NumField(); i++ {
-		if _, ok := sel[strings.ToLower(xt.Field(i).Name)]; ok {
+		f := xt.Field(i)
+		if _, ok := fields[bsonFieldName(f)]; ok {
 			continue
 		}
-		xv.Field(i).Set(reflect.Zero(xt.Field(i).Type))
+		dv.Field(i).Set(reflect.Zero(f.Type))
 	}
+	return dv.Addr().Interface()
+}
+
+func bsonFieldName(f reflect.StructField) string {
+	t := f.Tag.Get("bson")
+	if t == "" {
+		return strings.ToLower(f.Name)
+	}
+	if i := strings.Index(t, ","); i >= 0 {
+		t = t[0:i]
+	}
+	if t != "" {
+		return t
+	}
+	return strings.ToLower(f.Name)
 }
 
 func denormalizeAll(es []*mongodoc.Entity, bs []*mongodoc.BaseEntity) {
