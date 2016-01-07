@@ -9,11 +9,12 @@ import (
 
 	"gopkg.in/errgo.v1"
 	"gopkg.in/juju/charm.v6-unstable"
-	"gopkg.in/juju/charmrepo.v2-unstable/csclient/params"
 	"gopkg.in/mgo.v2"
 
 	"gopkg.in/juju/charmstore.v5-unstable/internal/mongodoc"
 )
+
+var ErrNotFound = errgo.New("not found")
 
 // TODO it might be better to represent the field selection with
 // a uint64 bitmask instead of a map[string]int.
@@ -145,7 +146,7 @@ func (c *Cache) Entity(id *charm.URL, fields map[string]int) (*mongodoc.Entity, 
 	}
 	e, err := c.entities.entity(id, fields)
 	if err != nil {
-		return nil, errgo.Mask(err, errgo.Is(params.ErrNotFound))
+		return nil, errgo.Mask(err, errgo.Is(ErrNotFound))
 	}
 	return e.(entity).Entity, nil
 }
@@ -156,7 +157,7 @@ func (c *Cache) Entity(id *charm.URL, fields map[string]int) (*mongodoc.Entity, 
 func (c *Cache) BaseEntity(id *charm.URL, fields map[string]int) (*mongodoc.BaseEntity, error) {
 	e, err := c.baseEntities.entity(mongodoc.BaseURL(id), fields)
 	if err != nil {
-		return nil, errgo.Mask(err, errgo.Is(params.ErrNotFound))
+		return nil, errgo.Mask(err, errgo.Is(ErrNotFound))
 	}
 	return e.(baseEntity).BaseEntity, nil
 }
@@ -258,7 +259,7 @@ func (s *stash) entity(id *charm.URL, fields map[string]int) (stashEntity, error
 	for {
 		if e != nil {
 			if e == notFoundEntity {
-				return nil, params.ErrNotFound
+				return nil, ErrNotFound
 			}
 			return e, nil
 		}
@@ -364,7 +365,7 @@ func (s *stash) fetch(url *charm.URL, fields map[string]int, version int) stashE
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err != nil {
-		if errgo.Cause(err) != params.ErrNotFound {
+		if errgo.Cause(err) != ErrNotFound {
 			if s.err == nil {
 				// Only set the error if we haven't encountered one already.
 				// We assume that if we're getting several errors, they're
