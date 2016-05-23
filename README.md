@@ -68,3 +68,4 @@ a production server, as it uses a known password for authentication.
 
 At this point the server starts listening on port 8080 (as specified in the
 config YAML file).
+foo
