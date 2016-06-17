@@ -59,22 +59,22 @@ var migrationHistory = []versionSpec{{
 		}, {
 			id:            "~charmers/bundle/promulgatedbundle-0",
 			promulgatedId: "bundle/promulgatedbundle-0",
-			entity: storetesting.NewBundle(&charm.BundleData{
-				Applications: map[string]*charm.ApplicationSpec{
-					"promulgated": {
-						Charm: "promulgated",
-					},
-				},
-			}),
+			entity: storetesting.NewBlob([]storetesting.File{{
+				Name: "README.md",
+				Data: []byte("something"),
+			}, {
+				Name: "bundle.yaml",
+				Data: []byte(`services: {promulgated: {charm: promulgated}}`),
+			}}),
 		}, {
 			id: "~charmers/bundle/nonpromulgatedbundle-0",
-			entity: storetesting.NewBundle(&charm.BundleData{
-				Applications: map[string]*charm.ApplicationSpec{
-					"promulgated": {
-						Charm: "promulgated",
-					},
-				},
-			}),
+			entity: storetesting.NewBlob([]storetesting.File{{
+				Name: "README.md",
+				Data: []byte("something"),
+			}, {
+				Name: "bundle.yaml",
+				Data: []byte(`services: {promulgated: {charm: promulgated}}`),
+			}}),
 		}})
 		if err != nil {
 			return errgo.Mask(err)
@@ -216,10 +216,10 @@ var migrationHistory = []versionSpec{{
 			id:     "~charmers/trusty/legacystats-1rev-notset-0",
 			entity: storetesting.NewCharm(nil),
 		}, {
-			id:     "~charmers/trusty/empty-metered-42",
+			id:     "~someone/trusty/empty-metered-42",
 			entity: storetesting.NewCharm(nil).WithMetrics(&charm.Metrics{}),
 		}, {
-			id: "~charmers/trusty/metered-42",
+			id: "~someone/trusty/metered-42",
 			entity: storetesting.NewCharm(nil).WithMetrics(&charm.Metrics{
 				Metrics: map[string]charm.Metric{
 					"pings": {

@@ -30,10 +30,9 @@ var _ charm.Bundle = (*Bundle)(nil)
 // Note that because it implements charmstore.ArchiverTo,
 // it can be used as an argument to charmstore.Store.AddBundleWithArchive.
 type Bundle struct {
-	blob     []byte
-	blobHash string
-	data     *charm.BundleData
-	readMe   string
+	*Blob
+	data   *charm.BundleData
+	readMe string
 }
 
 // Data implements charm.Bundle.Data.
@@ -46,22 +45,6 @@ func (b *Bundle) ReadMe() string {
 	return b.readMe
 }
 
-// ArchiveTo implements charmstore.ArchiverTo.
-func (b *Bundle) ArchiveTo(w io.Writer) error {
-	_, err := w.Write(b.blob)
-	return err
-}
-
-// Bytes returns the contents of the bundle's archive.
-func (b *Bundle) Bytes() []byte {
-	return b.blob
-}
-
-// Size returns the size of the bundle's archive blob.
-func (b *Bundle) Size() int64 {
-	return int64(len(b.blob))
-}
-
 // NewBundle returns a bundle implementation
 // that contains the given bundle data.
 func NewBundle(data *charm.BundleData) *Bundle {
@@ -70,18 +53,16 @@ func NewBundle(data *charm.BundleData) *Bundle {
 		panic(err)
 	}
 	readMe := "boring"
-	blob, hash := NewBlob([]File{{
-		Name: "bundle.yaml",
-		Data: dataYAML,
-	}, {
-		Name: "README.md",
-		Data: []byte(readMe),
-	}})
 	return &Bundle{
-		blob:     blob,
-		blobHash: hash,
-		data:     data,
-		readMe:   readMe,
+		data:   data,
+		readMe: readMe,
+		Blob: NewBlob([]File{{
+			Name: "bundle.yaml",
+			Data: dataYAML,
+		}, {
+			Name: "README.md",
+			Data: []byte(readMe),
+		}}),
 	}
 }
 
@@ -91,10 +72,9 @@ func NewBundle(data *charm.BundleData) *Bundle {
 // Note that because it implements charmstore.ArchiverTo,
 // it can be used as an argument to charmstore.Store.AddCharmWithArchive.
 type Charm struct {
-	blob     []byte
-	blobHash string
-	meta     *charm.Meta
-	metrics  *charm.Metrics
+	blob    *Blob
+	meta    *charm.Meta
+	metrics *charm.Metrics
 }
 
 var _ charm.Charm = (*Charm)(nil)
@@ -136,7 +116,7 @@ func (c *Charm) initBlob() {
 			Data: metricsYAML,
 		})
 	}
-	c.blob, c.blobHash = NewBlob(files)
+	c.blob = NewBlob(files)
 }
 
 func (c *Charm) WithMetrics(metrics *charm.Metrics) *Charm {
@@ -172,20 +152,19 @@ func (c *Charm) Revision() int {
 // ArchiveTo implements charmstore.ArchiverTo.
 func (c *Charm) ArchiveTo(w io.Writer) error {
 	c.initBlob()
-	_, err := w.Write(c.blob)
-	return err
+	return c.blob.ArchiveTo(w)
 }
 
 // Bytes returns the contents of the charm's archive.
 func (c *Charm) Bytes() []byte {
 	c.initBlob()
-	return c.blob
+	return c.blob.Bytes()
 }
 
 // Size returns the size of the charm's archive blob.
 func (c *Charm) Size() int64 {
 	c.initBlob()
-	return int64(len(c.blob))
+	return c.blob.Size()
 }
 
 // File represents a file which will be added to a new blob.
@@ -194,9 +173,8 @@ type File struct {
 	Data []byte
 }
 
-// NewBlob returns a zip archive containing the given files, along with
-// its blobstore hash.
-func NewBlob(files []File) ([]byte, string) {
+// NewBlob returns a blob that holds the given files.
+func NewBlob(files []File) *Blob {
 	var blob bytes.Buffer
 	zw := zip.NewWriter(&blob)
 	for _, f := range files {
@@ -213,7 +191,35 @@ func NewBlob(files []File) ([]byte, string) {
 	}
 	h := blobstore.NewHash()
 	h.Write(blob.Bytes())
-	return blob.Bytes(), fmt.Sprintf("%x", h.Sum(nil))
+	return &Blob{
+		data: blob.Bytes(),
+		hash: fmt.Sprintf("%x", h.Sum(nil)),
+	}
+}
+
+// Blob represents a blob of data - a zip archive.
+// Since it implements charmstore.ArchiverTo, it
+// can be used to add charms or bundles with specific
+// contents to the charm store.
+type Blob struct {
+	data []byte
+	hash string
+}
+
+// Bytes returns the contents of the blob.
+func (b *Blob) Bytes() []byte {
+	return b.data
+}
+
+// Size returns the size of the blob.
+func (b *Blob) Size() int64 {
+	return int64(len(b.data))
+}
+
+// ArchiveTo implements charmstore.ArchiverTo.ArchiveTo.
+func (b *Blob) ArchiveTo(w io.Writer) error {
+	_, err := w.Write(b.data)
+	return err
 }
 
 // MetaWithSupportedSeries returns m with Series
