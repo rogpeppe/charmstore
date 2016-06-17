@@ -5,7 +5,6 @@ package charmstore // import "gopkg.in/juju/charmstore.v5-unstable/internal/char
 
 import (
 	"encoding/json"
-	"io/ioutil"
 	"time"
 
 	"gopkg.in/errgo.v1"
@@ -472,6 +471,7 @@ func addMetrics(db StoreDatabase) error {
 		"series", bson.D{{"$ne", "bundle"}},
 	}}).Select(map[string]int{
 		"blobname": 1,
+		"size":     1,
 	}).Iter()
 	var entity mongodoc.Entity
 	for iter.Next(&entity) {
@@ -497,12 +497,7 @@ func getEntityMetrics(blobStore *blobstore.Store, entity mongodoc.Entity) (*char
 		return nil, errgo.Notef(err, "cannot open charm blob")
 	}
 	defer r.Close()
-	// TODO frankban: do not read the charm in memory?
-	data, err := ioutil.ReadAll(r)
-	if err != nil {
-		return nil, errgo.Notef(err, "cannot read charm blob")
-	}
-	ch, err := charm.ReadCharmArchiveBytes(data)
+	ch, err := charm.ReadCharmArchiveFromReader(ReaderAtSeeker(r), entity.Size)
 	if err != nil {
 		return nil, errgo.Notef(err, "cannot read charm archive bytes")
 	}

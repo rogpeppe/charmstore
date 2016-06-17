@@ -94,6 +94,7 @@ type Charm struct {
 	blob     []byte
 	blobHash string
 	meta     *charm.Meta
+	metrics  *charm.Metrics
 }
 
 var _ charm.Charm = (*Charm)(nil)
@@ -105,22 +106,42 @@ func NewCharm(meta *charm.Meta) *Charm {
 	if meta == nil {
 		meta = new(charm.Meta)
 	}
-	metaYAML, err := yaml.Marshal(meta)
+	return &Charm{
+		meta: meta,
+	}
+}
+
+func (c *Charm) initBlob() {
+	if c.blob != nil {
+		return
+	}
+	metaYAML, err := yaml.Marshal(c.meta)
 	if err != nil {
 		panic(err)
 	}
-	blob, hash := NewBlob([]File{{
+	files := []File{{
 		Name: "metadata.yaml",
 		Data: metaYAML,
 	}, {
 		Name: "README.md",
 		Data: []byte("boring"),
-	}})
-	return &Charm{
-		blob:     blob,
-		blobHash: hash,
-		meta:     meta,
+	}}
+	if c.metrics != nil {
+		metricsYAML, err := yaml.Marshal(c.metrics)
+		if err != nil {
+			panic(err)
+		}
+		files = append(files, File{
+			Name: "metrics.yaml",
+			Data: metricsYAML,
+		})
 	}
+	c.blob, c.blobHash = NewBlob(files)
+}
+
+func (c *Charm) WithMetrics(metrics *charm.Metrics) *Charm {
+	c.metrics = metrics
+	return c
 }
 
 // Meta implements charm.Charm.Meta.
@@ -135,7 +156,7 @@ func (c *Charm) Config() *charm.Config {
 
 // Metrics implements charm.Charm.Metrics.
 func (c *Charm) Metrics() *charm.Metrics {
-	return nil
+	return c.metrics
 }
 
 // Actions implements charm.Charm.Actions.
@@ -150,17 +171,20 @@ func (c *Charm) Revision() int {
 
 // ArchiveTo implements charmstore.ArchiverTo.
 func (c *Charm) ArchiveTo(w io.Writer) error {
+	c.initBlob()
 	_, err := w.Write(c.blob)
 	return err
 }
 
 // Bytes returns the contents of the charm's archive.
 func (c *Charm) Bytes() []byte {
+	c.initBlob()
 	return c.blob
 }
 
 // Size returns the size of the charm's archive blob.
 func (c *Charm) Size() int64 {
+	c.initBlob()
 	return int64(len(c.blob))
 }
 

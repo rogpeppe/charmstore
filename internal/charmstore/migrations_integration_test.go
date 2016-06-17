@@ -215,6 +215,19 @@ var migrationHistory = []versionSpec{{
 		}, {
 			id:     "~charmers/trusty/legacystats-1rev-notset-0",
 			entity: storetesting.NewCharm(nil),
+		}, {
+			id:     "~charmers/trusty/empty-metered-42",
+			entity: storetesting.NewCharm(nil).WithMetrics(&charm.Metrics{}),
+		}, {
+			id: "~charmers/trusty/metered-42",
+			entity: storetesting.NewCharm(nil).WithMetrics(&charm.Metrics{
+				Metrics: map[string]charm.Metric{
+					"pings": {
+						Type:        "gauge",
+						Description: "some metrics",
+					},
+				},
+			}),
 		}})
 
 		if err != nil {
@@ -324,6 +337,17 @@ var migrationFromDumpEntityTests = []struct {
 		hasCompatibilityBlob(false),
 		isDevelopment(true),
 		isStable(true),
+		hasMetrics(false),
+	},
+}, {
+	id: "~someone/trusty/empty-metered-42",
+	checkers: []entityChecker{
+		hasMetrics(false),
+	},
+}, {
+	id: "~someone/trusty/metered-42",
+	checkers: []entityChecker{
+		hasMetrics(true),
 	},
 }}
 
@@ -688,6 +712,13 @@ func isDevelopment(isDev bool) entityChecker {
 func isStable(isStable bool) entityChecker {
 	return func(c *gc.C, entity *mongodoc.Entity) {
 		c.Assert(entity.Stable, gc.Equals, isStable)
+	}
+}
+
+func hasMetrics(value bool) entityChecker {
+	return func(c *gc.C, entity *mongodoc.Entity) {
+		c.Assert(entity.CharmMetrics != nil, gc.Equals, value,
+			gc.Commentf("metrics: %#v", entity.CharmMetrics))
 	}
 }
 
