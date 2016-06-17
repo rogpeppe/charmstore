@@ -129,6 +129,7 @@ func newReqHandler() ReqHandler {
 	handlers.Meta["bundle-metadata"] = h.EntityHandler(h.metaBundleMetadata, "bundledata")
 	handlers.Meta["charm-related"] = h.EntityHandler(h.metaCharmRelated, "charmprovidedinterfaces", "charmrequiredinterfaces")
 	handlers.Meta["charm-metadata"] = h.EntityHandler(h.metaCharmMetadata, "charmmeta")
+	handlers.Meta["charm-metrics"] = h.EntityHandler(h.metaCharmMetadata, "charmmetrics")
 	handlers.Meta["revision-info"] = router.SingleIncludeHandler(h.metaRevisionInfo)
 	handlers.Meta["archive-size"] = h.EntityHandler(h.metaArchiveSize, "prev5blobsize")
 	handlers.Meta["hash"] = h.EntityHandler(h.metaHash, "prev5blobhash")
