@@ -55,11 +55,11 @@ func (s *Store) Open(name string, index *MultipartIndex) (ReadSeekCloser, int64,
 		}
 		return r.(ReadSeekCloser), length, nil
 	}
-	return &multipartReader{
-		store: s,
-		name: name,
-		index: index,
-	}
+	return nil, 0, nil //&multipartReader{
+	//	store: s,
+	//	name:  name,
+	//	index: index,
+	//}
 }
 
 // Remove the given name from the Store.
