@@ -1,17 +1,30 @@
 package blobstore
 
+import (
+	"fmt"
+	"gopkg.in/errgo.v1"
+	"gopkg.in/mgo.v2"
+	"gopkg.in/mgo.v2/bson"
+	"io"
+	"time"
+)
+
+const (
+	maxParts = 20
+)
+
 // uploadDoc describes the record that's held
 // for a pending multipart upload.
 type uploadDoc struct {
 	// Id holds the upload id. The blob for each
 	// part in the underlying blobstore will be named
 	// $id/$partnumber.
-	Id string			`bson:"_id"`
+	Id string `bson:"_id"`
 
 	// Hash holds the SHA384 hash of all the
 	// concatenated parts. It is empty until
 	// after FinishParts is called.
-	Hash string		`bson:"hash,omitempty"`
+	Hash string `bson:"hash,omitempty"`
 
 	// Expires holds the expiry time of the upload.
 	Expires time.Time
@@ -22,7 +35,7 @@ type uploadDoc struct {
 
 // {$or {$eq {.parts.7: {expectedPart}} {$eq {.parts.7 null}}}}
 
-// $set: {parts.7: 
+// $set: {parts.7:
 
 // uploadPart
 type uploadPart struct {
@@ -39,9 +52,9 @@ type uploadPart struct {
 // a multipart upload. It returns an uploadId that
 // can be used to refer to it.
 func (s *Store) NewParts(expiry time.Time) (uploadId string, err error) {
-	uploadId := fmt.Sprintf("%x", bson.NewObjectId())
+	uploadId = fmt.Sprintf("%x", bson.NewObjectId())
 	if err := s.uploadC().Insert(uploadDoc{
-		Id: uploadId,
+		Id:      uploadId,
 		Expires: expiry,
 	}); err != nil {
 		return "", errgo.Notef(err, "cannot create new upload")
@@ -76,7 +89,7 @@ func (s *Store) PutPart(uploadId string, part int, r io.Reader, size int64, hash
 	var udoc uploadDoc
 	if err := uploadc.FindId(uploadId).One(&udoc); err != nil {
 		if err == mgo.ErrNotFound {
-			return errgo.WithCausef(nil, ErrNotFound, "upload id %q not found", uploadId)
+			return errgo.WithCausef(nil, mgo.ErrNotFound, "upload id %q not found", uploadId)
 		}
 		return errgo.Notef(err, "cannot get upload id %q", uploadId)
 	}
@@ -97,9 +110,9 @@ func (s *Store) PutPart(uploadId string, part int, r io.Reader, size int64, hash
 		// No part record. Make one, not marked as complete
 		// before we put the part so that DeleteExpiredParts
 		// knows to delete the part.
-		complete, err := initializePart(uploadC, uploadId, hash, size)
+		complete, err := initializePart(uploadc, uploadId, part, hash, size)
 		if err != nil {
-			return errgo.Mask(err, errgo.Is(ErrNotFound))
+			return errgo.Mask(err, errgo.Is(mgo.ErrNotFound))
 		}
 		if complete {
 			return nil
@@ -125,11 +138,16 @@ func (s *Store) PutPart(uploadId string, part int, r io.Reader, size int64, hash
 	return nil
 }
 
+func (s *Store) partName(uploadId string, part int) string {
+	return ""
+}
+
 // initializePart creates the initial record for a part. It returns an
 // error with an ErrNotFound cause if the upload id doesn't exist, and
 // reports whether the part upload has already completed successfully.
-func initializePart(uploadc *gc.C, uploadId string, hash string, size int64) (complete bool, err error) {
-	err := uploadc.Update(bson.D{
+func initializePart(uploadc *mgo.Collection, uploadId string, part int, hash string, size int64) (complete bool, err error) {
+	partElem := fmt.Sprintf("parts.%d", part)
+	err = uploadc.Update(bson.D{
 		{"_id", uploadId},
 		{"$or", []bson.D{{{
 			partElem, bson.D{{"$exists", false}},
@@ -148,27 +166,28 @@ func initializePart(uploadc *gc.C, uploadId string, hash string, size int64) (co
 		return false, nil
 	}
 	if err != mgo.ErrNotFound {
-		return errgo.Notef(err, "cannot update initial part record")
+		return false, errgo.Notef(err, "cannot update initial part record")
 	}
 	// The update criteria didn't match any documents, which
 	// means that either the update was deleted or another
 	// concurrent upload is happening.
 	// Fetch the upload document again to find out.
+	var udoc uploadDoc
 	if err := uploadc.FindId(uploadId).One(&udoc); err != nil {
 		if err == mgo.ErrNotFound {
 			// It probably expired.
-			return errgo.WithCausef(nil, ErrNotFound, "upload id %q not found", uploadId)
+			return false, errgo.WithCausef(nil, mgo.ErrNotFound, "upload id %q not found", uploadId)
 		}
-		return errgo.Notef(err, "cannot refetch upload id %q", uploadId)
+		return false, errgo.Notef(err, "cannot refetch upload id %q", uploadId)
 	}
 	if part >= len(udoc.Parts) || udoc.Parts[part] == nil {
 		// Should never happen, because our update criteria should
 		// match in this case.
-		return errgo.Newf("part update failed even though part has not been uploaded")
+		return false, errgo.Newf("part update failed even though part has not been uploaded")
 	}
 	p := udoc.Parts[part]
 	if p.Hash != hash {
-		return errgo.Newf("hash mismatch for already uploaded part")
+		return false, errgo.Newf("hash mismatch for already uploaded part")
 	}
 	// The hash matches. Some other client got there first.
 	if p.Complete {
@@ -189,11 +208,11 @@ func initializePart(uploadc *gc.C, uploadId string, hash string, size int64) (co
 // deleted explicitly by calling DeleteParts after the index data is
 // stored.
 func (s *Store) FinishParts(uploadId string, parts []Part) (idx *MultipartIndex, hash string, err error) {
-	
-	read metadata
-	if parts don't match uploaded parts, return error
-	read all parts in sequence to hash them
-	return index derived from metadata and calculated hash
+	//read metadata
+	//if parts don't match uploaded parts, return error
+	//read all parts in sequence to hash them
+	//return index derived from metadata and calculated hash
+	return nil, "", errgo.New("parts listing not implemented yet")
 }
 
 // DeleteExpiredParts deletes any multipart entries
@@ -204,9 +223,10 @@ func (s *Store) DeleteExpiredParts() error
 // given upload id. It does nothing if FinishParts
 // has already been called for the given upload id.
 func (s *Store) DeleteParts(uploadId string) error {
-	read multipart metadata
-	delete all parts referenced in that
-	delete multipart metadata
+	//read multipart metadata
+	//delete all parts referenced in that
+	//delete multipart metadata
+	return errgo.New("parts listing not implemented yet")
 }
 
 // MultipartIndex holds the index of all the parts of a multipart blob.
@@ -221,6 +241,7 @@ type Part struct {
 	Hash string
 }
 
-func (s *Store) uploadC() *gc.C {
-	return s.db.C(prefix + ".upload")
+func (s *Store) uploadC() *mgo.Collection {
+	return nil
+	//return s.db.C(prefix + ".upload")
 }
