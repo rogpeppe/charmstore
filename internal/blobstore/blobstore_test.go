@@ -221,7 +221,7 @@ func (s *BlobStoreSuite) TestPutPartTooSmall(c *gc.C) {
 
 	content1 := "123456789 123456789 "
 	err = s.store.PutPart(id, 1, strings.NewReader(content1), int64(len(content1)), 26, hashOf(content1))
-	c.Assert(err, gc.ErrorMatches, `part 0 was too small \(need at least 100 bytes, got 26\)`)
+	c.Assert(err, gc.ErrorMatches, `part 0 too small \(need at least 100 bytes, got 26\)`)
 }
 
 func (s *BlobStoreSuite) TestPutPartTooSmallOutOfOrder(c *gc.C) {
@@ -234,7 +234,7 @@ func (s *BlobStoreSuite) TestPutPartTooSmallOutOfOrder(c *gc.C) {
 
 	content0 := "123456789 123456789 "
 	err = s.store.PutPart(id, 0, strings.NewReader(content0), int64(len(content0)), 26, hashOf(content0))
-	c.Assert(err, gc.ErrorMatches, `part too small \(need at least 100 bytes, got 20\)`)
+	c.Assert(err, gc.ErrorMatches, `part 0 too small \(need at least 100 bytes, got 20\)`)
 }
 
 func (s *BlobStoreSuite) TestPutPartSmallAtEnd(c *gc.C) {
@@ -247,7 +247,7 @@ func (s *BlobStoreSuite) TestPutPartSmallAtEnd(c *gc.C) {
 
 	content1 := "abc"
 	err = s.store.PutPart(id, 1, strings.NewReader(content1), int64(len(content1)), 4, hashOf(content1))
-	c.Assert(err, gc.ErrorMatches, `part 0 was too small \(need at least 10 bytes, got 4\)`)
+	c.Assert(err, gc.ErrorMatches, `part 0 too small \(need at least 10 bytes, got 4\)`)
 }
 
 func (s *BlobStoreSuite) TestPutPartConcurrent(c *gc.C) {
@@ -396,7 +396,7 @@ func (s *BlobStoreSuite) TestFinishUploadCheckSizes(c *gc.C) {
 	}, {
 		Hash: hashOf(content),
 	}})
-	c.Assert(err, gc.ErrorMatches, `part 0 was too small \(need at least 50 bytes, got 20\)`)
+	c.Assert(err, gc.ErrorMatches, `part 0 too small \(need at least 50 bytes, got 20\)`)
 	c.Assert(idx, gc.IsNil)
 	c.Assert(hash, gc.Equals, "")
 }

@@ -203,52 +203,51 @@ func (s *Store) PutPart(uploadId string, part int, r io.Reader, size int64, offs
 	return nil
 }
 
-// checkPartSizes checks part sizes as much as we can.
+// checkPartInfo checks part sizes and offsets as much as we can.
 // As the last part is allowed to be small, we can
 // only check previously uploaded parts unless we're
 // uploading an out-of-order part.
 //
 // The part argument holds the part being uploaded,
 // or -1 if no part is currently being uploaded.
-func (s *Store) checkPartSizes(parts []*PartInfo, part int, offset, size int64) error {
-	if part == -1 {
-		// There's no current part, so pretend the last part
-		// is being uploaded so that we don't complain about
-		// it being too small.
-		part = len(parts) - 1
-	} else if part < len(parts)-1 && size < s.MinPartSize {
-		return errgo.Newf("part too small (need at least %d bytes, got %d)", s.MinPartSize, size)
-	}
-	pos := int64(0)
-	for i, p := range parts {
-		if i != part && p != nil && p.Size < s.MinPartSize {
-			return errgo.Newf("part %d was too small (need at least %d bytes, got %d)", i, s.MinPartSize, p.Size)
+func (s *Store) checkPartInfo(parts []*PartInfo, part int, offset, size int64) error {
+	// virtualPart returns part information for the given part,
+	// taking into account the part is about to be written and
+	// also returning a zero part at index -1 to avoid a special
+	// case in the main loop logic.
+	virtualPart := func(i int) *PartInfo {
+		if part != -1 && i == part {
+			return &PartInfo{Offset: offset, Size: size}
 		}
-		if p == nil && i != part {
-			// Next position is unknown.
-			pos = -1
+		if i == -1 {
+			return &PartInfo{}
+		}
+		if i >= len(parts) {
+			return nil
+		}
+		return parts[i]
+	}
+	nparts := len(parts)
+	if part >= nparts {
+		// We're creating a new part beyond any existing part.
+		nparts = part + 1
+	}
+	for i := 0; i < nparts; i++ {
+		p := virtualPart(i)
+		if p == nil {
 			continue
 		}
-		partOffset := offset
-		partSize := size
-		if p != nil && (offset == -1 || i != part) {
-			partOffset = p.Offset
-			partSize = p.Size
+		if i < nparts-1 && p.Size < s.MinPartSize {
+			return errgo.Newf("part %d too small (need at least %d bytes, got %d)", i, s.MinPartSize, p.Size)
 		}
-		if pos != -1 {
-			// Check the offset if the current position is known.
-			if partOffset != pos {
-				return errgo.Newf("part %d should start at %d not at %d", i, pos, partOffset)
-			}
+		prev := virtualPart(i - 1)
+		if prev == nil {
+			continue
 		}
-		pos = partOffset + partSize
-	}
-	if len(parts) == part && pos != -1 {
-		if offset != pos {
-			return errgo.Newf("part %d should start at %d not at %d", part, pos, offset)
+		if want := prev.Offset + prev.Size; p.Offset != want {
+			return errgo.Newf("part %d should start at %d not at %d", i, want, p.Offset)
 		}
 	}
-
 	return nil
 }
 
