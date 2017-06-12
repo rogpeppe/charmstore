@@ -1250,6 +1250,8 @@ func (s *Store) DeleteEntity(id *router.ResolvedURL) error {
 	baseEntity, err := s.FindBaseEntity(&id.URL, map[string]int{
 		"_id":             1,
 		"channelentities": 1,
+		"promulgated":     1,
+		"channelacls":     1,
 	})
 	if err != nil {
 		return errgo.Mask(err)
@@ -1284,7 +1286,6 @@ func (s *Store) DeleteEntity(id *router.ResolvedURL) error {
 			return errgo.Notef(err, "cannot remove compatibility blob %s", name)
 		}
 	}
-
 	return nil
 }
 
